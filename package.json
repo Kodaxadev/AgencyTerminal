@@ -1,0 +1,24 @@
+{
+  "name": "agency-terminal",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit --project tsconfig.base.json",
+    "lint": "eslint apps packages --ext .ts,.tsx --config packages/config/eslint-config.js",
+    "test:run": "vitest run",
+    "build": "pnpm -r build",
+    "check:lines": "tsx scripts/check-lines.ts",
+    "verify:migrations": "pnpm --filter @agency-terminal/db verify:migrations"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0"
+  }
+}
