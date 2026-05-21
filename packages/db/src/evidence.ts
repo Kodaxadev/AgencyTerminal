@@ -103,6 +103,9 @@ export interface AddReviewInput {
   decision: "approve" | "object" | "needs_more_evidence";
   rationale: string;
   guildId: string;
+  conflictDisclosed?: boolean;
+  conflictReason?: string;
+  qualityTier?: "A" | "B" | "C" | "D" | "F";
 }
 
 export interface AddReviewResult {
@@ -137,6 +140,9 @@ export async function addReview(
       reviewerDiscordId: input.reviewerDiscordId,
       decision: input.decision as any,
       rationale: input.rationale,
+      conflictDisclosed: input.conflictDisclosed ? "true" : "false",
+      conflictReason: input.conflictReason,
+      qualityTier: input.qualityTier,
     })
     .returning({ id: evidenceReviews.id });
 
@@ -249,4 +255,50 @@ export async function writeAuditLog(input: {
     payload: (input.payload ?? {}) as Record<string, unknown>,
     discordMessageId: input.discordMessageId,
   });
+}
+
+/**
+ * Find evidence that has gone stale (past staleAfter without notification).
+ */
+export async function findStaleEvidence(
+  guildId: string,
+  now = new Date()
+): Promise<Array<{ id: string; shortId: string | null; title: string; metricCategory: string }>> {
+  const rows = await db
+    .select({
+      id: evidence.id,
+      shortId: evidence.shortId,
+      title: evidence.title,
+      metricCategory: evidence.metricCategory,
+    })
+    .from(evidence)
+    .where(
+      sql`${evidence.guildId} = ${guildId} AND ${evidence.status} = 'under_review' AND ${evidence.staleAfter} <= ${now} AND ${evidence.staleNotifiedAt} IS NULL`
+    );
+
+  return rows as Array<{ id: string; shortId: string | null; title: string; metricCategory: string }>;
+}
+
+/**
+ * Mark evidence as stale and notify.
+ */
+export async function markEvidenceStale(evidenceId: string): Promise<void> {
+  await db
+    .update(evidence)
+    .set({ status: "stale_review" as any, staleNotifiedAt: new Date() })
+    .where(eq(evidence.id, evidenceId));
+}
+
+/**
+ * Director override: force-validate stale evidence.
+ */
+export async function directorOverrideEvidence(
+  evidenceId: string,
+  directorDiscordId: string,
+  reason: string
+): Promise<void> {
+  await db
+    .update(evidence)
+    .set({ status: "validated" as any, validatedAt: new Date() })
+    .where(eq(evidence.id, evidenceId));
 }

@@ -6,7 +6,7 @@ export { db, pool } from "./client";
 export * from "../schema/drizzle-schema";
 export { createTicket } from "./tickets";
 export type { CreateTicketInput, CreateTicketResult, TicketType } from "./tickets";
-export { submitEvidence, addReview, creditScore, writeAuditLog } from "./evidence";
+export { submitEvidence, addReview, creditScore, writeAuditLog, findStaleEvidence, markEvidenceStale, directorOverrideEvidence } from "./evidence";
 export type {
   SubmitEvidenceInput,
   SubmitEvidenceResult,

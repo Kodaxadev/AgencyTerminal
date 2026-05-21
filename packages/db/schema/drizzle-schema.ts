@@ -339,6 +339,9 @@ export const evidenceReviews = pgTable("evidence_reviews", {
   reviewerDiscordId: text("reviewer_discord_id").notNull(),
   decision: reviewDecision("decision").notNull(),
   rationale: text("rationale").notNull().default(""),
+  conflictDisclosed: text("conflict_disclosed").notNull().default("false"),
+  conflictReason: text("conflict_reason"),
+  qualityTier: text("quality_tier"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
