@@ -22,6 +22,7 @@ import {
   createScoreCreditEmbed,
   createReviewButtons,
 } from "@agency-terminal/discord-ui";
+import { createTicket } from "@agency-terminal/db";
 
 // In-memory store for Phase 1. Replace with DB writes in Phase 2.
 const evidenceStore = new Map<string, { record: EvidenceRecord; reviews: ReviewRecord[] }>();
@@ -35,12 +36,77 @@ export async function handleInteraction(interaction: Interaction): Promise<void>
 }
 
 async function handleCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  const commandName = interaction.commandName;
   const subcommand = interaction.options.getSubcommand();
 
-  if (subcommand === "submit") {
-    await handleEvidenceSubmit(interaction);
-  } else if (subcommand === "status") {
-    await handleEvidenceStatus(interaction);
+  if (commandName === "evidence") {
+    if (subcommand === "submit") {
+      await handleEvidenceSubmit(interaction);
+    } else if (subcommand === "status") {
+      await handleEvidenceStatus(interaction);
+    }
+  } else if (commandName === "ticket") {
+    await handleTicketCommand(interaction);
+  }
+}
+
+async function handleTicketCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+
+  const subcommand = interaction.options.getSubcommand();
+  const guildId = interaction.guildId!;
+  const creatorDiscordId = interaction.user.id;
+
+  // Create a temporary channel-like ID for the ticket
+  const channelId = `ticket-${subcommand}-${Date.now()}`;
+  const idempotencyKey = `ticket:create:${guildId}:${interaction.id}`;
+
+  const typeMap: Record<string, { title: string; summary?: string; extra?: Record<string, string> }> = {
+    enlistment: { title: "Enlistment Request" },
+    contract: {
+      title: interaction.options.getString("title") ?? "Contract",
+      summary: interaction.options.getString("target") ? `Target: ${interaction.options.getString("target")}` : undefined,
+    },
+    intel: { title: interaction.options.getString("title") ?? "Intel Report" },
+    clearance: { title: `Clearance Request: ${interaction.options.getString("level") ?? "unknown"}` },
+    doctrine: { title: interaction.options.getString("title") ?? "Doctrine Challenge" },
+    general: { title: interaction.options.getString("title") ?? "General Ticket" },
+  };
+
+  const config = typeMap[subcommand];
+  if (!config) {
+    await interaction.editReply(`Unknown ticket type: ${subcommand}`);
+    return;
+  }
+
+  try {
+    const result = await createTicket({
+      guildId,
+      channelId,
+      creatorDiscordId,
+      type: subcommand === "doctrine" ? "doctrine_challenge" : subcommand as any,
+      title: config.title,
+      summary: config.summary,
+      ...config.extra,
+    }, idempotencyKey);
+
+    const embed = createAcceptedEmbed(
+      `Ticket **${result.shortId ?? result.id}** created.\nType: ${subcommand}\nTitle: ${config.title}`,
+    );
+
+    await interaction.editReply({ embeds: [embed] });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    // If DB is unavailable, fall back to a simulated response for dev
+    if (message.includes("DATABASE_URL") || message.includes("connect") || message.includes("ECONNREFUSED")) {
+      const simulatedId = `TKT-${String(evidenceStore.size + 1).padStart(4, "0")}`;
+      const embed = createAcceptedEmbed(
+        `[DEV MODE — DB unavailable]\nTicket **${simulatedId}** created (simulated).\nType: ${subcommand}\nTitle: ${config.title}`,
+      );
+      await interaction.editReply({ embeds: [embed] });
+    } else {
+      throw err;
+    }
   }
 }
 

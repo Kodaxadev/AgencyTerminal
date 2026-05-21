@@ -42,7 +42,35 @@ export const evidenceSubmit = new SlashCommandBuilder()
       ),
   );
 
-export const commands = [evidenceSubmit.toJSON()];
+export const ticketCommand = new SlashCommandBuilder()
+  .setName("ticket")
+  .setDescription("Create a workflow ticket")
+  .addSubcommand((sub) =>
+    sub.setName("enlistment").setDescription("Start enlistment process"),
+  )
+  .addSubcommand((sub) =>
+    sub.setName("contract").setDescription("Open a contract ticket")
+      .addStringOption((opt) => opt.setName("title").setDescription("Contract title").setRequired(true))
+      .addStringOption((opt) => opt.setName("target").setDescription("Target name/tribe").setRequired(false)),
+  )
+  .addSubcommand((sub) =>
+    sub.setName("intel").setDescription("Submit an intel report")
+      .addStringOption((opt) => opt.setName("title").setDescription("Intel title").setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub.setName("clearance").setDescription("Request clearance")
+      .addStringOption((opt) => opt.setName("level").setDescription("Clearance level requested").setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub.setName("doctrine").setDescription("Submit a doctrine challenge")
+      .addStringOption((opt) => opt.setName("title").setDescription("Challenge title").setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub.setName("general").setDescription("Open a general ticket")
+      .addStringOption((opt) => opt.setName("title").setDescription("Ticket title").setRequired(true)),
+  );
+
+export const commands = [evidenceSubmit.toJSON(), ticketCommand.toJSON()];
 
 export async function registerCommands(clientId: string, guildId: string, token: string): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(token);

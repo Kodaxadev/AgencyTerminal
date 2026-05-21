@@ -4,3 +4,5 @@
 
 export { db, pool } from "./client";
 export * from "../schema/drizzle-schema";
+export { createTicket } from "./tickets";
+export type { CreateTicketInput, CreateTicketResult, TicketType } from "./tickets";
