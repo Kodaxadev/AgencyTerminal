@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import { registerCommands } from "./commands";
 import { handleInteraction } from "./handlers";
+import { processOutbox } from "./outbox-processor";
 
 const requiredEnv = [
   "DISCORD_TOKEN",
@@ -76,6 +77,13 @@ async function main() {
       process.env.DISCORD_GUILD_ID!,
       process.env.DISCORD_TOKEN!,
     );
+
+    // Start outbox processor
+    setInterval(() => {
+      void processOutbox(client).catch((err) => {
+        console.error("Outbox processor error:", err);
+      });
+    }, 10_000);
   });
 
   await client.login(process.env.DISCORD_TOKEN);

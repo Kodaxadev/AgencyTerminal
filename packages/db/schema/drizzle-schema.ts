@@ -236,6 +236,69 @@ export const workflowEvents = pgTable("workflow_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ---------- Operational tables (migration 003) ----------
+
+export const outboxStatus = pgEnum("outbox_status", [
+  "pending",
+  "processing",
+  "sent",
+  "failed",
+  "dead",
+]);
+
+export const discordOutbox = pgTable("discord_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  guildId: text("guild_id").notNull().references(() => guildConfig.guildId, { onDelete: "cascade" }),
+  eventType: text("event_type").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  payload: jsonb("payload").notNull().default({}),
+  status: outboxStatus("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const idempotencyKeys = pgTable("idempotency_keys", {
+  key: text("key").primaryKey(),
+  guildId: text("guild_id").notNull().references(() => guildConfig.guildId, { onDelete: "cascade" }),
+  scope: text("scope").notNull(),
+  actorDiscordId: text("actor_discord_id"),
+  result: jsonb("result").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+});
+
+export const rateLimitBuckets = pgTable("rate_limit_buckets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  guildId: text("guild_id").notNull().references(() => guildConfig.guildId, { onDelete: "cascade" }),
+  actorDiscordId: text("actor_discord_id").notNull(),
+  action: text("action").notNull(),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  windowSeconds: integer("window_seconds").notNull(),
+  count: integer("count").notNull().default(0),
+  limitCount: integer("limit_count").notNull(),
+});
+
+export const botHealthChecks = pgTable("bot_health_checks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  guildId: text("guild_id").references(() => guildConfig.guildId, { onDelete: "cascade" }),
+  checkId: text("check_id").notNull(),
+  status: text("status").notNull(),
+  detail: text("detail"),
+  remediation: text("remediation"),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const workerHeartbeats = pgTable("worker_heartbeats", {
+  workerName: text("worker_name").primaryKey(),
+  guildId: text("guild_id").references(() => guildConfig.guildId, { onDelete: "cascade" }),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  metadata: jsonb("metadata").notNull().default({}),
+});
+
 // ---------- Evidence ledger ----------
 
 export const evidence = pgTable("evidence", {

@@ -1,6 +1,7 @@
 import { db } from "./client";
 import { tickets, ticketEvents, ticketParticipants, workflowInstances } from "../schema/drizzle-schema";
 import { eq, sql } from "drizzle-orm";
+import { enqueueOutbox } from "./outbox";
 
 export type TicketType =
   | "enlistment"
@@ -129,6 +130,21 @@ export async function createTicket(
       idempotencyKey,
       type: input.type,
     } as Record<string, unknown>,
+  });
+
+  // Enqueue outbox for private channel creation
+  await enqueueOutbox({
+    guildId: input.guildId,
+    eventType: "ticket_created",
+    idempotencyKey: `channel:create:${input.guildId}:${ticket.id}`,
+    payload: {
+      ticketId: ticket.id,
+      ticketShortId: ticket.shortId,
+      ticketType: input.type,
+      creatorDiscordId: input.creatorDiscordId,
+      title: input.title,
+      channelId: ticket.channelId,
+    },
   });
 
   return ticket;

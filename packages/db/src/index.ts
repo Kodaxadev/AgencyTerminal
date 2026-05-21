@@ -14,3 +14,11 @@ export type {
   AddReviewResult,
   CreditScoreInput,
 } from "./evidence";
+export {
+  enqueueOutbox,
+  fetchDueOutbox,
+  markOutboxSent,
+  markOutboxFailed,
+  createTicketChannel,
+} from "./outbox";
+export type { EnqueueOutboxInput, OutboxEventType, CreateTicketChannelInput } from "./outbox";
