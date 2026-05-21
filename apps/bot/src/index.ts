@@ -1,4 +1,6 @@
-import { Client, GatewayIntentBits, REST, Routes } from "discord.js";
+import { Client, GatewayIntentBits } from "discord.js";
+import { registerCommands } from "./commands";
+import { handleInteraction } from "./handlers";
 
 const requiredEnv = [
   "DISCORD_TOKEN",
@@ -52,21 +54,6 @@ function startupSelfCheck(client: Client): void {
   });
 }
 
-async function registerCommands(_client: Client): Promise<void> {
-  const guildId = process.env.DISCORD_GUILD_ID!;
-  const commands: unknown[] = [];
-
-  try {
-    const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN!);
-    await rest.put(Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID!, guildId), {
-      body: commands,
-    });
-    console.log("Registered slash commands.");
-  } catch (error) {
-    console.error("Failed to register commands:", error);
-  }
-}
-
 async function main() {
   validateEnv();
 
@@ -78,11 +65,17 @@ async function main() {
     ],
   });
 
+  client.on("interactionCreate", handleInteraction);
+
   client.once("ready", () => {
     console.log(`SIG//AGENCY TERMINAL — ONLINE`);
     console.log(`Connected as ${client.user?.tag}`);
     startupSelfCheck(client);
-    void registerCommands(client);
+    void registerCommands(
+      process.env.DISCORD_CLIENT_ID!,
+      process.env.DISCORD_GUILD_ID!,
+      process.env.DISCORD_TOKEN!,
+    );
   });
 
   await client.login(process.env.DISCORD_TOKEN);
