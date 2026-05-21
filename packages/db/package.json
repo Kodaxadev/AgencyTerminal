@@ -9,10 +9,10 @@
     "verify:migrations": "echo 'Run: psql \\\"$DATABASE_URL\\\" -f migrations/001_*.sql'"
   },
   "dependencies": {
-    "drizzle-orm": "^0.38.0",
-    "postgres": "^3.4.0"
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "typescript": "5.9.3"
   }
 }
