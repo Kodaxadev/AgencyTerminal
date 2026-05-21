@@ -8,10 +8,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agency-terminal/core": "workspace:*"
+    "@agency-terminal/core": "workspace:*",
+    "discord.js": "14.26.4"
   },
   "devDependencies": {
-    "discord.js": "14.26.4",
     "typescript": "5.9.3"
   }
 }
