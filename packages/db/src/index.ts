@@ -1,5 +1,6 @@
 // @agency-terminal/db
-// SQL migrations are the canonical schema source.
-// See migrations/001_initial_agency_terminal.sql through 007.
+// Drizzle ORM client backed by PostgreSQL via postgres-js.
+// DATABASE_URL must be set in the environment before importing.
 
-export { }
+export { db, pool } from "./client";
+export * from "../schema/drizzle-schema";
