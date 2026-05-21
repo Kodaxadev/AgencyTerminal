@@ -38,23 +38,34 @@ This suite contains the concept docs, architecture, MVP roadmap, Discord UX, Evi
 
 ## Suite contents
 
+### Core docs
 - `docs/01_PRD.md` — Product requirements document
-- `docs/02_ARCHITECTURE.md` — System and module architecture
-- `docs/03_HOSTING_ARCHITECTURE.md` — Railway/Supabase/Vercel hosting plan
-- `docs/04_EVIDENCE_LEDGER.md` — Append-only contribution ledger design
-- `docs/05_TICKET_WORKFLOWS.md` — Ticket types, states, reviewer actions
-- `docs/06_DISCORD_UX.md` — Commands, embeds, channels, roles
-- `docs/07_SECURITY_PRIVACY.md` — Data classes, access control, audit boundaries
-- `docs/08_IMPLEMENTATION_ROADMAP.md` — Build phases and acceptance gates
-- `docs/09_WEBSITE_WRAPPER_COPY.md` — Copy for Agency site integration
-- `docs/10_MARKETING_ASSETS_BRIEF.md` — Marketing art direction and visual system
-- `docs/11_IMAGE_PROMPT_PACK.md` — Prompts for image generation tools
-- `docs/12_OPERATOR_RUNBOOK.md` — Launch and operations runbook
+- `docs/02_ARCHITECTURE.md` — System, module, and reliability architecture
+- `docs/03_HOSTING_ARCHITECTURE.md` — Railway/Supabase/Vercel hosting + soft launch
+- `docs/04_EVIDENCE_LEDGER.md` — Append-only ledger, group credit, appeals, corrections
+- `docs/05_WORKFLOW_STATE_MACHINES.md` — Workflow-specific state machines (enlistment, contract, intel, evidence, clearance, doctrine)
+- `docs/06_GROUP_CREDIT_AND_WITNESSES.md` — Multi-agent credit and witness model
+- `docs/07_APPEALS_AND_CORRECTIONS.md` — Evidence appeals and score correction path
+- `docs/08_CONTROLS_PAGE.md` — Internal operator console spec
+- `docs/09_SECURITY_PRIVACY_COUNTERINTEL.md` — Auth, permissions, counterintelligence, retention
+- `docs/10_OPERATING_DOCTRINE.md` — Social contract and red-team checklist
+- `docs/11_IMPLEMENTATION_ROADMAP.md` — Build phases and acceptance gates
+- `docs/12_OPERATOR_RUNBOOK.md` — Launch, daily ops, and incident response
 - `docs/adrs/*` — Architecture decision records
+
+### Web components
 - `web/AgencyTerminalPage.tsx` — React/Tailwind concept page
 - `web/static-agency-terminal.html` — Standalone HTML mockup
+- `web/controls-page-wireframe.md` — Controls page wireframe
+
+### Assets
 - `assets/*.svg` — Simple concept SVGs for hero/section mocks
 - `assets/readme/*` — README concept board images
+
+### Database
+- `migrations/001`–`007` — Complete SQL schema
+
+---
 
 ## Recommended first build
 

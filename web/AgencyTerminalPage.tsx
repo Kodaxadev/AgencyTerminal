@@ -1,5 +1,5 @@
 import React from "react";
-import { Shield, FileCheck2, Radio, ScrollText, LockKeyhole, Terminal, GitPullRequestDraft } from "lucide-react";
+import { Shield, FileCheck2, Radio, ScrollText, LockKeyhole, Terminal, Scale } from "lucide-react";
 
 const features = [
   {
@@ -18,7 +18,7 @@ const features = [
     text: "Access requests tied to operational need, contribution history, sponsor context, and auditable decisions.",
   },
   {
-    icon: GitPullRequestDraft,
+    icon: Scale,
     label: "DOCTRINE CHALLENGE",
     text: "Structured dissent workflow for critique, analysis, adopted changes, and contribution credit.",
   },

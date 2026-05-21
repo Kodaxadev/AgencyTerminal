@@ -62,3 +62,44 @@ Supabase Project
 Vercel Project later
   - app: agency-terminal-dashboard
 ```
+
+## Soft launch policy
+
+The bot launches in **shadow mode** before becoming authoritative:
+
+### Phase 0 — Dry Run
+- Test server or private channels
+- Fake evidence, no real scoring
+
+### Phase 1 — Shadow Ledger (2-4 weeks)
+- Real evidence and reviews
+- Officer-only profiles
+- No authority impact
+- Scores calculated but not authority-bearing
+
+### Phase 2 — Advisory Ledger
+- Profiles visible to members where safe
+- Scores may inform discussion
+- No automatic promotions
+
+### Phase 3 — Operational Ledger
+- Leadership may reference ledger in clearance/rank decisions
+- Bot still does not auto-promote or auto-demote
+
+### Exit criteria for shadow mode
+- No critical schema changes pending
+- Reviewers understand quorum process
+- Stale escalation works
+- Appeals process exists
+- Score reversal process exists
+- Public/officer profile split confirmed
+- Retention/export policy accepted
+- The Agency leadership accepts the social contract
+
+### Failure criteria (pause rollout)
+- Evidence queues stall
+- Intel leaks occur
+- Reviewers complain of overload
+- Score disputes dominate usage
+- Contract info leaks
+- Bot permission drift causes private ticket exposure

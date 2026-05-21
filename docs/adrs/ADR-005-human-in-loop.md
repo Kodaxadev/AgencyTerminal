@@ -1,8 +1,8 @@
-# Adr 005 Human In Loop
+# ADR-005 — Human In The Loop
 
 ## Status
 
-Accepted for concept design.
+Accepted.
 
 ## Decision
 
@@ -10,4 +10,4 @@ The bot does not auto-promote, auto-demote, auto-deny, or auto-accept in v1. Hum
 
 ## Consequences
 
-This keeps v1 operationally simple while preserving the auditability needed for doctrine-aligned contribution tracking.
+Lower risk, more human review. Better alignment with the principle that the bot makes contribution legible; it does not decide who is valuable.

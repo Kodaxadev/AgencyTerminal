@@ -1,13 +1,13 @@
-# Adr 006 Integrations External
+# ADR-006 — Integrations Are External
 
 ## Status
 
-Accepted for concept design.
+Accepted.
 
 ## Decision
 
-Signal Vault, FrontierWarden, killboard enrichment, and World API support are external integrations, not v1 dependencies.
+Signal Vault, FrontierWarden, killboard enrichment, and World API support are external integrations behind adapters, not v1 dependencies. v1 is manual-first.
 
 ## Consequences
 
-This keeps v1 operationally simple while preserving the auditability needed for doctrine-aligned contribution tracking.
+Evidence workflows work without EF API keys. Future integrations can be added without refactoring the Evidence Ledger.

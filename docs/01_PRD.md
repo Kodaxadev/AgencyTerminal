@@ -6,6 +6,10 @@ Agency Terminal is a Discord-native operations terminal for The Agency // Lux Le
 
 The product is not a generic ticket bot. It is a contribution ledger with ticket-shaped intake.
 
+North star:
+
+> Agency Terminal should not decide who is valuable. It should make contribution legible.
+
 ## Doctrine alignment
 
 The Agency doctrine creates the product's foundation:
@@ -29,13 +33,16 @@ Agency Terminal operationalizes this by making contributions legible, reviewable
 
 ## Non-goals for v1
 
-- No automatic role grants.
+- No automatic role grants or removals.
 - No automatic demotions.
 - No direct on-chain writes.
 - No multi-tribe SaaS billing.
 - No fully automated killboard validation.
 - No Signal Vault write dependency.
 - No FrontierWarden dependency.
+- No public signup or onboarding.
+- No automatic authority mutation.
+- No negative public score.
 
 ## Primary users
 
@@ -48,6 +55,7 @@ Agency Terminal operationalizes this by making contributions legible, reviewable
 - Technical Officer
 - Handler
 - Director
+- Operator (infrastructure)
 
 ## Core workflows
 
@@ -62,3 +70,14 @@ Agency Terminal operationalizes this by making contributions legible, reviewable
 ## Product principle
 
 The bot should recommend, route, record, and expose structured evidence. It should not decide political value or replace leadership judgment.
+
+## Forbidden scope creep
+
+Do not add these without a new ADR:
+
+```text
+billing, subscription tiers, multi-server signup, public account creation,
+automated rank promotion/demotion, automatic Discord role mutation,
+on-chain writes, wallet custody, payment handling, prediction markets,
+gambling mechanics, cross-tribe reputation sharing, public API, public dashboard
+```

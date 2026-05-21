@@ -1,13 +1,13 @@
-# Adr 003 Discord Ui Postgres Source
+# ADR-003 — Discord Is UI, Postgres Is Source
 
 ## Status
 
-Accepted for concept design.
+Accepted.
 
 ## Decision
 
-Discord is workflow UI. Postgres is source of truth for tickets, evidence, score events, reversals, and audit logs.
+Discord is workflow UI. Postgres is source of truth for tickets, evidence, score events, reversals, appeals, and audit logs.
 
 ## Consequences
 
-This keeps v1 operationally simple while preserving the auditability needed for doctrine-aligned contribution tracking.
+Discord messages are projections. Failed Discord UI updates create retryable outbox events, not ledger rollbacks.

@@ -1,13 +1,13 @@
-# Adr 002 Evidence Ledger Append Only
+# ADR-002 — Evidence Ledger Is Append-Only
 
 ## Status
 
-Accepted for concept design.
+Accepted.
 
 ## Decision
 
-The Evidence Ledger is append-only. Score corrections use reversal events, not destructive updates.
+The Evidence Ledger is append-only. Score corrections use reversal and correction events, not destructive updates.
 
 ## Consequences
 
-This keeps v1 operationally simple while preserving the auditability needed for doctrine-aligned contribution tracking.
+Full audit trail. History cannot be silently altered. Reversal is always more protected than validation.
