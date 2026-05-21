@@ -11,7 +11,6 @@ import type { EvidenceRecord, ReviewRecord, MetricCategory } from "@agency-termi
 import {
   evaluateQuorum,
   canValidateEvidence,
-  calculateScoreCredits,
   getQuorumRequirement,
 } from "@agency-terminal/core";
 import {
@@ -19,13 +18,14 @@ import {
   createEvidenceStatusEmbed,
   createAcceptedEmbed,
   createReviewResultEmbed,
-  createScoreCreditEmbed,
   createReviewButtons,
 } from "@agency-terminal/discord-ui";
-import { createTicket } from "@agency-terminal/db";
+import { createTicket, submitEvidence, addReview, writeAuditLog } from "@agency-terminal/db";
+import { processScoreCredits } from "./scoring";
 
-// In-memory store for Phase 1. Replace with DB writes in Phase 2.
+// In-memory fallback for dev when DB is unavailable
 const evidenceStore = new Map<string, { record: EvidenceRecord; reviews: ReviewRecord[] }>();
+let dbAvailable = true;
 
 export async function handleInteraction(interaction: Interaction): Promise<void> {
   if (interaction.isChatInputCommand()) {
@@ -120,6 +120,88 @@ async function handleEvidenceSubmit(interaction: ChatInputCommandInteraction): P
   const link = interaction.options.getString("link");
 
   const subjectDiscordId = subjectUser?.id ?? interaction.user.id;
+  const guildId = interaction.guildId!;
+  const idempotencyKey = `evidence:submit:${guildId}:${interaction.id}`;
+
+  if (dbAvailable) {
+    try {
+      const result = await submitEvidence({
+        guildId,
+        submittedByDiscordId: interaction.user.id,
+        subjectDiscordId,
+        metricCategory: metric,
+        title,
+        description,
+        linkUrl: link ?? undefined,
+        linkSourceType: link ? "manual" : undefined,
+      }, idempotencyKey);
+
+      const record: EvidenceRecord = {
+        id: result.shortId ?? result.id,
+        guildId,
+        submittedByDiscordId: interaction.user.id,
+        subjectDiscordId,
+        metricCategory: metric,
+        status: "under_review",
+        sensitivity: "member",
+        title,
+        description,
+        validationRequiredApprovals: getQuorumRequirement(metric),
+        submittedMode: "live_bot",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const embed = createEvidenceSubmissionEmbed(record);
+      const buttons = createReviewButtons(result.id);
+
+      await interaction.editReply({
+        content: `Evidence **${result.shortId ?? result.id}** submitted for review.`,
+        embeds: [embed],
+        components: buttons,
+      });
+
+      if (link) {
+        await interaction.followUp({ content: `Evidence link: ${link}`, ephemeral: false });
+      }
+
+      await writeAuditLog({
+        guildId,
+        actorDiscordId: interaction.user.id,
+        action: "evidence_submitted",
+        subjectType: "evidence",
+        subjectId: result.id,
+        payload: { metric, title },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (isDbError(message)) {
+        dbAvailable = false;
+        return handleEvidenceSubmitFallback(interaction, metric, title, description, subjectDiscordId, link);
+      }
+      throw err;
+    }
+  } else {
+    return handleEvidenceSubmitFallback(interaction, metric, title, description, subjectDiscordId, link);
+  }
+}
+
+function isDbError(message: string): boolean {
+  return message.includes("DATABASE_URL") ||
+    message.includes("connect") ||
+    message.includes("ECONNREFUSED") ||
+    message.includes("connection") ||
+    message.includes("socket");
+}
+
+async function handleEvidenceSubmitFallback(
+  interaction: ChatInputCommandInteraction,
+  metric: MetricCategory,
+  title: string,
+  description: string,
+  subjectDiscordId: string,
+  link: string | null,
+): Promise<void> {
   const evidenceId = `EVD-${String(evidenceStore.size + 1).padStart(4, "0")}`;
 
   const record: EvidenceRecord = {
@@ -144,18 +226,10 @@ async function handleEvidenceSubmit(interaction: ChatInputCommandInteraction): P
   const buttons = createReviewButtons(evidenceId);
 
   await interaction.editReply({
-    content: `Evidence **${evidenceId}** submitted for review.`,
+    content: `[DEV MODE] Evidence **${evidenceId}** submitted for review.`,
     embeds: [embed],
     components: buttons,
   });
-
-  // Post review request to the channel for officers to see
-  if (link) {
-    await interaction.followUp({
-      content: `Evidence link: ${link}`,
-      ephemeral: false,
-    });
-  }
 }
 
 async function handleEvidenceStatus(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -183,6 +257,65 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
 
   await interaction.deferReply({ ephemeral: true });
 
+  const decision =
+    type === "approve"
+      ? "approve"
+      : type === "object"
+        ? "object"
+        : "needs_more_evidence";
+
+  if (dbAvailable) {
+    try {
+      const guildId = interaction.guildId!;
+      const idempotencyKey = `review:${evidenceId}:${interaction.user.id}`;
+
+      const reviewResult = await addReview({
+        evidenceId,
+        reviewerDiscordId: interaction.user.id,
+        decision,
+        rationale: `Review via ${type} button`,
+        guildId,
+      }, idempotencyKey);
+
+      const review: ReviewRecord = {
+        evidenceId,
+        reviewerDiscordId: interaction.user.id,
+        decision,
+        rationale: `Review via ${type} button`,
+        conflictDisclosed: false,
+        createdAt: new Date(),
+      };
+
+      const resultEmbed = createReviewResultEmbed(review, evidenceId);
+      await interaction.editReply({ embeds: [resultEmbed] });
+
+      if (reviewResult.quorumReached) {
+        // For DB path, we need to fetch the evidence record to get agent info.
+        // Phase 2.2 uses a simplified flow — full evidence lookup in Phase 3.
+        await interaction.followUp({
+          content: `**Quorum reached for ${evidenceId}!** Score credit pending full evidence lookup.`,
+          ephemeral: false,
+        });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (isDbError(message)) {
+        dbAvailable = false;
+        return handleButtonFallback(interaction, evidenceId, type as string, decision);
+      }
+      throw err;
+    }
+  } else {
+    return handleButtonFallback(interaction, evidenceId, type as string, decision);
+  }
+}
+
+async function handleButtonFallback(
+  interaction: ButtonInteraction,
+  evidenceId: string,
+  type: string,
+  decision: "approve" | "object" | "needs_more_evidence",
+): Promise<void> {
   const entry = evidenceStore.get(evidenceId);
   if (!entry) {
     await interaction.editReply("Evidence not found.");
@@ -197,13 +330,6 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
     await interaction.editReply("You have already reviewed this evidence.");
     return;
   }
-
-  const decision =
-    type === "approve"
-      ? "approve"
-      : type === "object"
-        ? "object"
-        : "needs_more_evidence";
 
   const review: ReviewRecord = {
     evidenceId,
@@ -232,42 +358,13 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
       ephemeral: false,
     });
 
-    // Calculate and post score credits
-    const subjects = [
-      {
-        evidenceId,
-        subjectDiscordId: record.subjectDiscordId,
-        role: "primary" as const,
-        pointMultiplier: 1.0,
-      },
-    ];
-
-    // Use a default metric config for Phase 1
-    const metricConfig = {
-      category: record.metricCategory,
-      basePoints: 10,
-      visibility: "public" as const,
-      enabled: true,
-      version: 1,
-    };
-
-    const creditResult = calculateScoreCredits(
-      subjects,
-      metricConfig,
+    await processScoreCredits(
+      interaction,
       evidenceId,
       record.guildId,
-      "system",
-      new Date(),
+      record.subjectDiscordId,
+      record.metricCategory,
     );
-
-    for (const event of creditResult.events) {
-      const scoreEmbed = createScoreCreditEmbed(event);
-      await interaction.followUp({
-        content: `<@${event.agentDiscordId}>`,
-        embeds: [scoreEmbed],
-        ephemeral: false,
-      });
-    }
 
     record.status = "credited";
     record.creditedAt = new Date();
