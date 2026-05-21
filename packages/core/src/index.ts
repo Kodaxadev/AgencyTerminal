@@ -137,3 +137,32 @@ export type RetentionAction = "retain" | "archive" | "delete" | "redact";
 export type HealthCheckStatus = "ok" | "warn" | "fail";
 
 export type OutboxStatus = "pending" | "processing" | "sent" | "failed" | "dead";
+
+// --- Module exports (interfaces and pure functions) ---
+
+export type {
+  EvidenceRecord,
+  EvidenceSubject,
+  EvidenceWitness,
+  EvidenceLink,
+  EvidenceSourceType,
+  ReviewRecord,
+  MetricConfig,
+  IdempotencyKey,
+} from "./evidence/types";
+
+export {
+  getQuorumRequirement,
+  evaluateQuorum,
+  canValidateEvidence,
+  shouldMarkStale,
+} from "./evidence/quorum";
+
+export type { ScoreEvent, ScoreReversal, ScoreCorrection } from "./scoring/types";
+
+export {
+  calculateScoreCredits,
+  validateScoreReversal,
+  validateScoreCorrection,
+  computeNetScore,
+} from "./scoring/engine";

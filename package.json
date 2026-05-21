@@ -19,6 +19,7 @@
     "tsx": "4.22.3",
     "eslint": "8.57.1",
     "@typescript-eslint/parser": "7.18.0",
-    "@typescript-eslint/eslint-plugin": "7.18.0"
+    "@typescript-eslint/eslint-plugin": "7.18.0",
+    "vitest": "4.0.18"
   }
 }
