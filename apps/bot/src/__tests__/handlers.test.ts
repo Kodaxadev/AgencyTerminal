@@ -32,6 +32,8 @@ describe("interaction handler safety", () => {
     dbMocks.getCapabilitiesForRoles.mockResolvedValue(["can_override_quorum"]);
   });
 
+  // ── Director override ────────────────────────────────────────────────────
+
   it("does not report success for nonexistent evidence override", async () => {
     dbMocks.directorOverrideEvidence.mockRejectedValueOnce(new Error("Evidence not found"));
     const interaction = makeDirectorOverrideInteraction();
@@ -42,8 +44,18 @@ describe("interaction handler safety", () => {
     expect(JSON.stringify(interaction.editReply.mock.calls)).not.toContain("is now validated");
   });
 
-  it("opens the review modal for authorized review button clicks", async () => {
-    dbMocks.getCapabilitiesForRoles.mockResolvedValueOnce(["can_validate_evidence"]);
+  // ── Review button — B4 modal latency hardening ───────────────────────────
+
+  it("review button click shows modal immediately without DB capability lookup", async () => {
+    const interaction = makeReviewButtonInteraction();
+
+    await handleInteraction(interaction as never);
+
+    expect(interaction.showModal).toHaveBeenCalledOnce();
+    expect(dbMocks.getCapabilitiesForRoles).not.toHaveBeenCalled();
+  });
+
+  it("review button click does not issue a denial reply based on DB role lookup", async () => {
     const interaction = makeReviewButtonInteraction();
 
     await handleInteraction(interaction as never);
@@ -51,6 +63,51 @@ describe("interaction handler safety", () => {
     expect(interaction.reply).not.toHaveBeenCalled();
     expect(interaction.showModal).toHaveBeenCalledOnce();
   });
+
+  it("malformed review button custom ID fails ephemerally without DB capability lookup", async () => {
+    const interaction = { ...makeReviewButtonInteraction(), customId: "review:approve:" };
+
+    await handleInteraction(interaction as never);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.showModal).not.toHaveBeenCalled();
+    expect(dbMocks.getCapabilitiesForRoles).not.toHaveBeenCalled();
+  });
+
+  // ── Review modal — mutation-time authorization boundary ──────────────────
+
+  it("unauthorized modal submission calls deferReply ephemeral, returns denial, never calls addReview", async () => {
+    dbMocks.getCapabilitiesForRoles.mockResolvedValueOnce([]);
+    const interaction = makeReviewModalInteraction("No");
+
+    await handleInteraction(interaction as never);
+
+    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringMatching(/not authorized/i));
+    expect(dbMocks.addReview).not.toHaveBeenCalled();
+  });
+
+  it("authorized modal submission calls addReview", async () => {
+    dbMocks.getCapabilitiesForRoles.mockResolvedValueOnce(["can_validate_evidence"]);
+    dbMocks.addReview.mockResolvedValueOnce({ quorumReached: false });
+    const interaction = makeReviewModalInteraction("No");
+
+    await handleInteraction(interaction as never);
+
+    expect(dbMocks.addReview).toHaveBeenCalledOnce();
+  });
+
+  it("returns a truthful denial when approval is rejected by the domain service", async () => {
+    dbMocks.getCapabilitiesForRoles.mockResolvedValueOnce(["can_validate_evidence"]);
+    dbMocks.addReview.mockRejectedValueOnce(new Error("Reviewer cannot approve evidence they submitted."));
+    const interaction = makeReviewModalInteraction("No");
+
+    await handleInteraction(interaction as never);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringMatching(/cannot approve evidence/i));
+  });
+
+  // ── Evidence submission — B3 queued-ack ─────────────────────────────────
 
   it("keeps submitter evidence receipts ephemeral without review controls", async () => {
     dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001", validationRequiredApprovals: 1 });
@@ -108,16 +165,6 @@ describe("interaction handler safety", () => {
     expect(interaction.editReply).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining("queued for private review") }),
     );
-  });
-
-  it("returns a truthful denial when approval is rejected by the domain service", async () => {
-    dbMocks.getCapabilitiesForRoles.mockResolvedValueOnce(["can_validate_evidence"]);
-    dbMocks.addReview.mockRejectedValueOnce(new Error("Reviewer cannot approve evidence they submitted."));
-    const interaction = makeReviewModalInteraction("No");
-
-    await handleInteraction(interaction as never);
-
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringMatching(/cannot approve evidence/i));
   });
 });
 

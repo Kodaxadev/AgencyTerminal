@@ -147,8 +147,8 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
   const [action, type, evidenceId] = interaction.customId.split(":");
   if (action !== "review") return;
 
-  if (!await userCanReview(interaction)) {
-    await interaction.reply({ content: "You are not authorized to review evidence.", ephemeral: true });
+  if (!type || !evidenceId) {
+    await interaction.reply({ content: "Invalid review button.", ephemeral: true });
     return;
   }
 
