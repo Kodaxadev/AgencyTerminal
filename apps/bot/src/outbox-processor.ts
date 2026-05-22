@@ -67,8 +67,20 @@ export async function processOutbox(
         staleAlerts++;
       }
     }
-  } catch {
-    // Stale check failure is non-fatal to outbox projection processing.
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error(
+      JSON.stringify({
+        level: "error",
+        event: "stale_evidence_scan_failed",
+        guildId,
+        error: {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        },
+      }),
+    );
   }
 
   return { processed, errors, staleAlerts };

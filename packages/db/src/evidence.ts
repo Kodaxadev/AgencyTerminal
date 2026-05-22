@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
   agentScoreEvents,
@@ -295,7 +295,12 @@ export async function findStaleEvidence(
     })
     .from(evidence)
     .where(
-      sql`${evidence.guildId} = ${guildId} AND ${evidence.status} = 'under_review' AND ${evidence.staleAfter} <= ${now} AND ${evidence.staleNotifiedAt} IS NULL`,
+      and(
+        eq(evidence.guildId, guildId),
+        eq(evidence.status, "under_review"),
+        lte(evidence.staleAfter, now),
+        isNull(evidence.staleNotifiedAt),
+      ),
     );
 
   return rows;

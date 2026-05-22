@@ -60,6 +60,53 @@ describe("outbox processor channel fetch reconciliation", () => {
     expect(payload.content).toContain("stale-alert:ev-1");
     expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-1");
   });
+
+  it("does not crash outbox processing when stale evidence scan fails", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([ticketCreatedMessage()]);
+    dbMocks.findStaleEvidence.mockRejectedValue(new Error("Database connection failed"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const existingChannel = { id: "channel-existing", topic: "Contract | TKT-1 [agency-ticket:ticket-1]" };
+    const create = vi.fn();
+    const client = makeClient({
+      cachedChannels: [],
+      fetchedChannels: [existingChannel],
+      create,
+    });
+
+    const result = await processOutbox(client, "guild-1", 1);
+
+    expect(result.processed).toBe(1);
+    expect(result.errors).toBe(0);
+    expect(result.staleAlerts).toBe(0);
+    expect(dbMocks.persistTicketChannelId).toHaveBeenCalledWith("ticket-1", "channel-existing");
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("emits structured error log when stale evidence scan fails", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([]);
+    dbMocks.findStaleEvidence.mockRejectedValue(new Error("Database connection failed"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = makeClient({
+      cachedChannels: [],
+      fetchedChannels: [],
+      create: vi.fn(),
+    });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    const firstCall = consoleErrorSpy.mock.calls[0];
+    const logMessage = firstCall[0] as string;
+    const parsedLog = JSON.parse(logMessage) as { level: string; event: string; guildId: string; error: { name: string; message: string; stack?: string } };
+    expect(parsedLog.level).toBe("error");
+    expect(parsedLog.event).toBe("stale_evidence_scan_failed");
+    expect(parsedLog.guildId).toBe("guild-1");
+    expect(parsedLog.error).toBeDefined();
+    expect(parsedLog.error.name).toBe("Error");
+    expect(parsedLog.error.message).toBe("Database connection failed");
+    expect(parsedLog.error.stack).toBeDefined();
+    consoleErrorSpy.mockRestore();
+  });
 });
 
 function ticketCreatedMessage() {
