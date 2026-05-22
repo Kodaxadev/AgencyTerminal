@@ -232,6 +232,52 @@ describe("evidence_review_projection outbox worker", () => {
     expect(serialized).toContain("review:object:ev-proof-1");
   });
 
+  it("displays non-EVD shortId in embed while marker and buttons use UUID", async () => {
+    const casePayload = {
+      ...projectionMsg.payload,
+      evidenceId: "ev-proof-1",
+      evidenceShortId: "CASE-0042",
+    };
+    dbMocks.claimDueOutbox.mockResolvedValue([{ ...projectionMsg, payload: casePayload }]);
+    const opsChannel = makePrivateOpsChannel();
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    const sendMock = opsChannel.send as ReturnType<typeof vi.fn>;
+    const [payload] = sendMock.mock.calls[0] as [{ content: string; embeds: Array<{ data: Record<string, unknown> }>; components: unknown[] }];
+    expect(payload.embeds[0].data.title).toContain("CASE-0042");
+    expect(payload.content).toContain("[evidence-review:ev-proof-1]");
+    const serialized = JSON.stringify(payload.components);
+    expect(serialized).toContain("review:approve:ev-proof-1");
+  });
+
+  it("numeric evidenceShortId causes markOutboxFailed, no send", async () => {
+    const badPayload = { ...projectionMsg.payload, evidenceShortId: 42 };
+    dbMocks.claimDueOutbox.mockResolvedValue([{ ...projectionMsg, payload: badPayload }]);
+    const opsChannel = makePrivateOpsChannel();
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(dbMocks.markOutboxFailed).toHaveBeenCalled();
+    expect(opsChannel.send).not.toHaveBeenCalled();
+    expect(dbMocks.markOutboxSent).not.toHaveBeenCalled();
+  });
+
+  it("object evidenceShortId causes markOutboxFailed, no send", async () => {
+    const badPayload = { ...projectionMsg.payload, evidenceShortId: { foo: "bar" } };
+    dbMocks.claimDueOutbox.mockResolvedValue([{ ...projectionMsg, payload: badPayload }]);
+    const opsChannel = makePrivateOpsChannel();
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(dbMocks.markOutboxFailed).toHaveBeenCalled();
+    expect(opsChannel.send).not.toHaveBeenCalled();
+    expect(dbMocks.markOutboxSent).not.toHaveBeenCalled();
+  });
+
   it("raw URL is absent from worker output", async () => {
     dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
     const opsChannel = makePrivateOpsChannel();

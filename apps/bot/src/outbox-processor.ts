@@ -235,6 +235,9 @@ function validateReviewProjectionPayload(p: Record<string, unknown>): EvidenceRe
   const submittedMode = VALID_MODES.includes(p.submittedMode as EvidenceRecord["submittedMode"]) ? p.submittedMode as EvidenceRecord["submittedMode"] : null;
   if (!submittedMode) throw new Error(`evidence_review_projection payload invalid submittedMode: ${p.submittedMode}`);
 
+  if (p.evidenceShortId !== undefined && p.evidenceShortId !== null && typeof p.evidenceShortId !== "string") {
+    throw new Error(`evidence_review_projection payload invalid evidenceShortId type: ${typeof p.evidenceShortId}`);
+  }
   const evidenceShortId = typeof p.evidenceShortId === "string" ? p.evidenceShortId : null;
 
   return {
@@ -270,10 +273,10 @@ async function handleEvidenceReviewProjectionOutbox(
     throw new Error("AGENCY_OPS_QUEUE_CHANNEL_ID not configured");
   }
 
+  const canonicalEvidenceId = msg.payload.evidenceId as string;
   const evidenceRecord = validateReviewProjectionPayload(msg.payload);
-  const evidenceId = evidenceRecord.id.includes("EVD-")
-    ? (msg.payload.evidenceId as string)
-    : evidenceRecord.id;
+  const displayId = evidenceRecord.id;
+  const evidenceId = canonicalEvidenceId;
 
   const guild = await client.guilds.fetch(msg.guildId);
   const channel = await guild.channels.fetch(opsQueueChannelId);
@@ -298,7 +301,7 @@ async function handleEvidenceReviewProjectionOutbox(
 
   await channel.send({
     content: `Evidence review ${marker}`,
-    embeds: [createEvidenceSubmissionEmbed(evidenceRecord)],
+    embeds: [createEvidenceSubmissionEmbed({ ...evidenceRecord, id: displayId })],
     components: createReviewButtons(evidenceId),
   });
 }
