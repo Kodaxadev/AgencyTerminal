@@ -93,8 +93,9 @@ async function handleTicketCreatedOutbox(
   const title = (p.title as string) ?? "Ticket";
   const ticketId = p.ticketId as string | undefined;
   const channelName = `${ticketType}-${ticketShortId}`.toLowerCase().replace(/_/g, "-");
+  const fetchedChannels = await guild.channels.fetch();
   const existingChannel = ticketId
-    ? findExistingTicketChannel(Array.from(guild.channels.cache.values()), ticketId)
+    ? findExistingTicketChannel(Array.from(fetchedChannels.values()).filter((channel) => channel !== null), ticketId)
     : undefined;
 
   if (ticketId && existingChannel) {
@@ -134,7 +135,8 @@ async function postStaleAlert(
   ev: { id: string; shortId: string | null; title: string; metricCategory: string },
 ): Promise<"sent" | "missing_ops_channel" | "send_failed"> {
   const guild = await client.guilds.fetch(guildId);
-  const opsChannel = guild.channels.cache.find(
+  const fetchedChannels = await guild.channels.fetch();
+  const opsChannel = Array.from(fetchedChannels.values()).filter((channel) => channel !== null).find(
     (ch) => ch.name === "ops-queue" && ch.type === ChannelType.GuildText,
   ) as TextChannel | undefined;
 
