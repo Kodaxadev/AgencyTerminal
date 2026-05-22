@@ -95,8 +95,9 @@ describe("outbox processor channel fetch reconciliation", () => {
     await processOutbox(client, "guild-1", 1);
 
     expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    const [logMessage] = consoleErrorSpy.mock.calls[0];
-    const parsedLog = JSON.parse(logMessage as string);
+    const firstCall = consoleErrorSpy.mock.calls[0];
+    const logMessage = firstCall[0] as string;
+    const parsedLog = JSON.parse(logMessage) as { level: string; event: string; guildId: string; error: { name: string; message: string; stack?: string } };
     expect(parsedLog.level).toBe("error");
     expect(parsedLog.event).toBe("stale_evidence_scan_failed");
     expect(parsedLog.guildId).toBe("guild-1");
