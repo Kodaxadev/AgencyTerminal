@@ -180,7 +180,7 @@ describe("evidence_review_projection outbox worker", () => {
     expect(payload.content).toContain("[evidence-review:ev-proof-1]");
   });
 
-  it("posted card uses payload validationRequiredApprovals", async () => {
+  it("rendered embed uses evidenceShortId for display", async () => {
     dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
     const opsChannel = makePrivateOpsChannel();
     const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
@@ -189,9 +189,47 @@ describe("evidence_review_projection outbox worker", () => {
 
     const sendMock = opsChannel.send as ReturnType<typeof vi.fn>;
     const [payload] = sendMock.mock.calls[0] as [{ embeds: Array<{ data: Record<string, unknown> }> }];
-    const fields = payload.embeds[0].data.fields as Array<{ name: string; value: string }>;
-    const approvalsField = fields.find((f) => f.name === "REQUIRED APPROVALS");
-    expect(approvalsField?.value).toBe("1");
+    expect(payload.embeds[0].data.title).toContain("EVD-0042");
+  });
+
+  it.each([
+    { field: "validationRequiredApprovals", value: undefined, reason: "missing" },
+    { field: "validationRequiredApprovals", value: 0, reason: "zero" },
+    { field: "validationRequiredApprovals", value: -1, reason: "negative" },
+    { field: "validationRequiredApprovals", value: 1.5, reason: "non-integer" },
+    { field: "submittedByDiscordId", value: "", reason: "empty" },
+    { field: "subjectDiscordId", value: undefined, reason: "missing" },
+    { field: "metricCategory", value: "invalid_metric", reason: "invalid" },
+    { field: "sensitivity", value: "top_secret", reason: "invalid" },
+    { field: "submittedMode", value: "discord_dm", reason: "invalid" },
+    { field: "title", value: undefined, reason: "missing" },
+    { field: "description", value: null, reason: "null" },
+  ])(`malformed payload ($field=$reason) causes markOutboxFailed, no send`, async ({ field, value }) => {
+    const badPayload = { ...projectionMsg.payload, [field]: value };
+    dbMocks.claimDueOutbox.mockResolvedValue([{ ...projectionMsg, payload: badPayload }]);
+    const opsChannel = makePrivateOpsChannel();
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(dbMocks.markOutboxFailed).toHaveBeenCalled();
+    expect(opsChannel.send).not.toHaveBeenCalled();
+    expect(dbMocks.markOutboxSent).not.toHaveBeenCalled();
+  });
+
+  it("marker and review buttons still use UUID evidenceId", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const opsChannel = makePrivateOpsChannel();
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    const sendMock = opsChannel.send as ReturnType<typeof vi.fn>;
+    const [payload] = sendMock.mock.calls[0] as [{ content: string; components: unknown[] }];
+    expect(payload.content).toContain("[evidence-review:ev-proof-1]");
+    const serialized = JSON.stringify(payload.components);
+    expect(serialized).toContain("review:approve:ev-proof-1");
+    expect(serialized).toContain("review:object:ev-proof-1");
   });
 
   it("raw URL is absent from worker output", async () => {

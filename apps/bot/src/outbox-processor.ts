@@ -26,7 +26,7 @@ import {
   createEvidenceSubmissionEmbed,
   createReviewButtons,
 } from "@agency-terminal/discord-ui";
-import type { EvidenceRecord, MetricCategory } from "@agency-terminal/core";
+import type { EvidenceRecord, MetricCategory, Sensitivity } from "@agency-terminal/core";
 
 function allowCreator(discordId: string) {
   return {
@@ -197,6 +197,63 @@ async function hasExistingReviewMarker(channel: TextChannel, evidenceId: string)
   return Array.from(messages.values()).some((m) => m.content?.includes(marker));
 }
 
+const VALID_METRICS: MetricCategory[] = [
+  "pvp_kill_value", "fleet_participation", "contracts_completed",
+  "intelligence_acquisitions", "technical_development_output",
+  "asset_contributions", "exploration", "lore_discovery",
+];
+const VALID_SENSITIVITIES: Sensitivity[] = ["public", "member", "officer_only", "director_only"];
+const VALID_MODES: EvidenceRecord["submittedMode"][] = ["live_bot", "manual_backfill", "imported"];
+
+function validateReviewProjectionPayload(p: Record<string, unknown>): EvidenceRecord {
+  const evidenceId = typeof p.evidenceId === "string" && p.evidenceId.length > 0 ? p.evidenceId : null;
+  if (!evidenceId) throw new Error("evidence_review_projection payload missing or empty evidenceId");
+
+  const submittedByDiscordId = typeof p.submittedByDiscordId === "string" && p.submittedByDiscordId.length > 0 ? p.submittedByDiscordId : null;
+  if (!submittedByDiscordId) throw new Error("evidence_review_projection payload missing or empty submittedByDiscordId");
+
+  const subjectDiscordId = typeof p.subjectDiscordId === "string" && p.subjectDiscordId.length > 0 ? p.subjectDiscordId : null;
+  if (!subjectDiscordId) throw new Error("evidence_review_projection payload missing or empty subjectDiscordId");
+
+  const metricCategory = VALID_METRICS.includes(p.metricCategory as MetricCategory) ? p.metricCategory as MetricCategory : null;
+  if (!metricCategory) throw new Error(`evidence_review_projection payload invalid metricCategory: ${p.metricCategory}`);
+
+  const sensitivity = VALID_SENSITIVITIES.includes(p.sensitivity as EvidenceRecord["sensitivity"]) ? p.sensitivity as EvidenceRecord["sensitivity"] : null;
+  if (!sensitivity) throw new Error(`evidence_review_projection payload invalid sensitivity: ${p.sensitivity}`);
+
+  const title = typeof p.title === "string" ? p.title : null;
+  if (title === null) throw new Error("evidence_review_projection payload missing or invalid title");
+
+  const description = typeof p.description === "string" ? p.description : null;
+  if (description === null) throw new Error("evidence_review_projection payload missing or invalid description");
+
+  const vra = p.validationRequiredApprovals;
+  if (typeof vra !== "number" || !Number.isInteger(vra) || vra < 1) {
+    throw new Error(`evidence_review_projection payload invalid validationRequiredApprovals: ${vra}`);
+  }
+
+  const submittedMode = VALID_MODES.includes(p.submittedMode as EvidenceRecord["submittedMode"]) ? p.submittedMode as EvidenceRecord["submittedMode"] : null;
+  if (!submittedMode) throw new Error(`evidence_review_projection payload invalid submittedMode: ${p.submittedMode}`);
+
+  const evidenceShortId = typeof p.evidenceShortId === "string" ? p.evidenceShortId : null;
+
+  return {
+    id: evidenceShortId ?? evidenceId,
+    guildId: "",
+    submittedByDiscordId,
+    subjectDiscordId,
+    metricCategory,
+    status: "under_review",
+    sensitivity,
+    title,
+    description,
+    validationRequiredApprovals: vra,
+    submittedMode,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
 async function handleEvidenceReviewProjectionOutbox(
   client: Client,
   msg: {
@@ -213,11 +270,10 @@ async function handleEvidenceReviewProjectionOutbox(
     throw new Error("AGENCY_OPS_QUEUE_CHANNEL_ID not configured");
   }
 
-  const p = msg.payload;
-  const evidenceId = p.evidenceId as string | undefined;
-  if (!evidenceId) {
-    throw new Error("evidence_review_projection payload missing evidenceId");
-  }
+  const evidenceRecord = validateReviewProjectionPayload(msg.payload);
+  const evidenceId = evidenceRecord.id.includes("EVD-")
+    ? (msg.payload.evidenceId as string)
+    : evidenceRecord.id;
 
   const guild = await client.guilds.fetch(msg.guildId);
   const channel = await guild.channels.fetch(opsQueueChannelId);
@@ -239,21 +295,6 @@ async function handleEvidenceReviewProjectionOutbox(
   }
 
   const marker = getEvidenceReviewMarker(evidenceId);
-  const evidenceRecord: EvidenceRecord = {
-    id: evidenceId,
-    guildId: msg.guildId,
-    submittedByDiscordId: p.submittedByDiscordId as string,
-    subjectDiscordId: p.subjectDiscordId as string,
-    metricCategory: p.metricCategory as MetricCategory,
-    status: "under_review",
-    sensitivity: (p.sensitivity as EvidenceRecord["sensitivity"]) ?? "member",
-    title: (p.title as string) ?? "Untitled",
-    description: (p.description as string) ?? "",
-    validationRequiredApprovals: (p.validationRequiredApprovals as number) ?? 2,
-    submittedMode: (p.submittedMode as EvidenceRecord["submittedMode"]) ?? "live_bot",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
 
   await channel.send({
     content: `Evidence review ${marker}`,
