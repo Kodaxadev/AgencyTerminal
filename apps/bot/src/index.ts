@@ -80,7 +80,7 @@ async function main() {
 
     // Start outbox processor
     setInterval(() => {
-      void processOutbox(client).catch((err) => {
+      void processOutbox(client, process.env.DISCORD_GUILD_ID!).catch((err) => {
         console.error("Outbox processor error:", err);
       });
     }, 10_000);

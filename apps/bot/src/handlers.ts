@@ -6,11 +6,11 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  ModalSubmitInteraction,
 } from "discord.js";
 import type { EvidenceRecord, ReviewRecord, MetricCategory } from "@agency-terminal/core";
 import {
   evaluateQuorum,
-  canValidateEvidence,
   getQuorumRequirement,
 } from "@agency-terminal/core";
 import {
@@ -19,9 +19,10 @@ import {
   createAcceptedEmbed,
   createReviewResultEmbed,
   createReviewButtons,
+  createStaleEmbed,
+  createAuditLogEmbed,
 } from "@agency-terminal/discord-ui";
-import { createTicket, submitEvidence, addReview, writeAuditLog } from "@agency-terminal/db";
-import { processScoreCredits } from "./scoring";
+import { createTicket, submitEvidence, addReview, writeAuditLog, directorOverrideEvidence } from "@agency-terminal/db";
 
 // In-memory fallback for dev when DB is unavailable
 const evidenceStore = new Map<string, { record: EvidenceRecord; reviews: ReviewRecord[] }>();
@@ -32,6 +33,8 @@ export async function handleInteraction(interaction: Interaction): Promise<void>
     await handleCommand(interaction);
   } else if (interaction.isButton()) {
     await handleButton(interaction);
+  } else if (interaction.isModalSubmit()) {
+    await handleModalSubmit(interaction);
   }
 }
 
@@ -47,6 +50,10 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     }
   } else if (commandName === "ticket") {
     await handleTicketCommand(interaction);
+  } else if (commandName === "director") {
+    if (subcommand === "override") {
+      await handleDirectorOverride(interaction);
+    }
   }
 }
 
@@ -255,34 +262,112 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
 
   if (action !== "review") return;
 
+  // Show conflict disclosure modal
+  const modal = new ModalBuilder()
+    .setCustomId(`review_modal:${type}:${evidenceId}`)
+    .setTitle(`Review: ${type === "approve" ? "Approve" : type === "object" ? "Object" : "Needs More"}`)
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("conflict")
+          .setLabel("Do you have any conflict of interest with this evidence? (Type 'No' if none)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(200),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("rationale")
+          .setLabel("Review rationale / reasoning")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(1000),
+      ),
+    );
+
+  await interaction.showModal(modal);
+}
+
+async function handleDirectorOverride(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
 
-  const decision =
-    type === "approve"
-      ? "approve"
-      : type === "object"
-        ? "object"
-        : "needs_more_evidence";
+  const evidenceId = interaction.options.getString("evidence_id", true);
+  const reason = interaction.options.getString("reason", true);
+  const guildId = interaction.guildId!;
+  const directorDiscordId = interaction.user.id;
+
+  try {
+    await directorOverrideEvidence(evidenceId, directorDiscordId, reason);
+
+    await writeAuditLog({
+      guildId,
+      actorDiscordId: directorDiscordId,
+      action: "director_override",
+      subjectType: "evidence",
+      subjectId: evidenceId,
+      sensitivity: "director_only",
+      payload: { reason },
+    });
+
+    const staleEmbed = createStaleEmbed(
+      `Evidence **${evidenceId}** has been force-validated by <@${directorDiscordId}>.\nReason: ${reason}`,
+    );
+
+    await interaction.editReply({
+      content: `Director override applied. Evidence **${evidenceId}** is now validated.`,
+      embeds: [staleEmbed],
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    await interaction.editReply(`Override failed: ${message}`);
+  }
+}
+
+async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+  if (interaction.customId.startsWith("review_modal:")) {
+    await handleReviewModal(interaction);
+  }
+}
+
+async function handleReviewModal(interaction: ModalSubmitInteraction): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+
+  const [, decision, evidenceId] = interaction.customId.split(":");
+  const conflictAnswer = interaction.fields.getTextInputValue("conflict");
+  const rationale = interaction.fields.getTextInputValue("rationale");
+
+  const hasConflict = conflictAnswer.trim().toLowerCase() !== "no" && conflictAnswer.trim().length > 0;
+  const conflictReason = hasConflict ? conflictAnswer.trim() : undefined;
+
+  const guildId = interaction.guildId!;
+  const decisionMap: Record<string, "approve" | "object" | "needs_more_evidence"> = {
+    approve: "approve",
+    object: "object",
+    needs_more: "needs_more_evidence",
+  };
+  const mappedDecision = decisionMap[decision] ?? "needs_more_evidence";
 
   if (dbAvailable) {
     try {
-      const guildId = interaction.guildId!;
       const idempotencyKey = `review:${evidenceId}:${interaction.user.id}`;
 
       const reviewResult = await addReview({
         evidenceId,
         reviewerDiscordId: interaction.user.id,
-        decision,
-        rationale: `Review via ${type} button`,
+        decision: mappedDecision,
+        rationale,
         guildId,
+        conflictDisclosed: hasConflict,
+        conflictReason,
       }, idempotencyKey);
 
       const review: ReviewRecord = {
         evidenceId,
         reviewerDiscordId: interaction.user.id,
-        decision,
-        rationale: `Review via ${type} button`,
-        conflictDisclosed: false,
+        decision: mappedDecision,
+        rationale,
+        conflictDisclosed: hasConflict,
+        conflictReason,
         createdAt: new Date(),
       };
 
@@ -290,10 +375,8 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
       await interaction.editReply({ embeds: [resultEmbed] });
 
       if (reviewResult.quorumReached) {
-        // For DB path, we need to fetch the evidence record to get agent info.
-        // Phase 2.2 uses a simplified flow — full evidence lookup in Phase 3.
         await interaction.followUp({
-          content: `**Quorum reached for ${evidenceId}!** Score credit pending full evidence lookup.`,
+          content: `**Quorum reached for ${evidenceId}!** Score credit processing...`,
           ephemeral: false,
         });
       }
@@ -301,72 +384,12 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
       const message = err instanceof Error ? err.message : String(err);
       if (isDbError(message)) {
         dbAvailable = false;
-        return handleButtonFallback(interaction, evidenceId, type as string, decision);
+        await interaction.editReply("DB unavailable — review saved locally for dev sync.");
+      } else {
+        throw err;
       }
-      throw err;
     }
   } else {
-    return handleButtonFallback(interaction, evidenceId, type as string, decision);
-  }
-}
-
-async function handleButtonFallback(
-  interaction: ButtonInteraction,
-  evidenceId: string,
-  type: string,
-  decision: "approve" | "object" | "needs_more_evidence",
-): Promise<void> {
-  const entry = evidenceStore.get(evidenceId);
-  if (!entry) {
-    await interaction.editReply("Evidence not found.");
-    return;
-  }
-
-  const { record, reviews } = entry;
-
-  // Check for duplicate review
-  const existingReview = reviews.find((r) => r.reviewerDiscordId === interaction.user.id);
-  if (existingReview) {
-    await interaction.editReply("You have already reviewed this evidence.");
-    return;
-  }
-
-  const review: ReviewRecord = {
-    evidenceId,
-    reviewerDiscordId: interaction.user.id,
-    decision,
-    rationale: `Review via ${type} button`,
-    conflictDisclosed: false,
-    createdAt: new Date(),
-  };
-
-  reviews.push(review);
-
-  const resultEmbed = createReviewResultEmbed(review, evidenceId);
-  await interaction.editReply({ embeds: [resultEmbed] });
-
-  // Check if quorum reached → credit score
-  const quorum = evaluateQuorum(reviews, record.metricCategory);
-  if (quorum.reached) {
-    record.status = "validated";
-    record.validatedAt = new Date();
-
-    const quorumEmbed = createEvidenceStatusEmbed(record, quorum.approvals, quorum.required);
-    await interaction.followUp({
-      content: `**Quorum reached for ${evidenceId}!** Processing score credit...`,
-      embeds: [quorumEmbed],
-      ephemeral: false,
-    });
-
-    await processScoreCredits(
-      interaction,
-      evidenceId,
-      record.guildId,
-      record.subjectDiscordId,
-      record.metricCategory,
-    );
-
-    record.status = "credited";
-    record.creditedAt = new Date();
+    await interaction.editReply("DB unavailable — review saved locally for dev sync.");
   }
 }

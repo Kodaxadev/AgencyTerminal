@@ -70,7 +70,21 @@ export const ticketCommand = new SlashCommandBuilder()
       .addStringOption((opt) => opt.setName("title").setDescription("Ticket title").setRequired(true)),
   );
 
-export const commands = [evidenceSubmit.toJSON(), ticketCommand.toJSON()];
+export const directorCommand = new SlashCommandBuilder()
+  .setName("director")
+  .setDescription("Director override commands")
+  .addSubcommand((sub) =>
+    sub.setName("override")
+      .setDescription("Force-validate stale evidence")
+      .addStringOption((opt) =>
+        opt.setName("evidence_id").setDescription("Evidence ID to override").setRequired(true),
+      )
+      .addStringOption((opt) =>
+        opt.setName("reason").setDescription("Override reason (audit log)").setRequired(true),
+      ),
+  );
+
+export const commands = [evidenceSubmit.toJSON(), ticketCommand.toJSON(), directorCommand.toJSON()];
 
 export async function registerCommands(clientId: string, guildId: string, token: string): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(token);

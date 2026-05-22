@@ -5,8 +5,9 @@ import {
   PermissionOverwrites,
   PermissionsBitField,
   TextChannel,
+  EmbedBuilder,
 } from "discord.js";
-import { fetchDueOutbox, markOutboxSent, markOutboxFailed } from "@agency-terminal/db";
+import { fetchDueOutbox, markOutboxSent, markOutboxFailed, findStaleEvidence, markEvidenceStale } from "@agency-terminal/db";
 
 function denyEveryone() {
   return { deny: new PermissionsBitField([PermissionsBitField.Flags.ViewChannel]), id: "everyone" as any };
@@ -29,11 +30,13 @@ function allowCreator(discordId: string) {
  */
 export async function processOutbox(
   client: Client,
+  guildId: string,
   maxBatch = 20
-): Promise<{ processed: number; errors: number }> {
+): Promise<{ processed: number; errors: number; staleAlerts: number }> {
   const messages = await fetchDueOutbox(maxBatch);
   let processed = 0;
   let errors = 0;
+  let staleAlerts = 0;
 
   for (const msg of messages) {
     try {
@@ -49,7 +52,19 @@ export async function processOutbox(
     }
   }
 
-  return { processed, errors };
+  // Check for stale evidence and post to ops queue
+  try {
+    const stale = await findStaleEvidence(guildId);
+    for (const ev of stale) {
+      await markEvidenceStale(ev.id);
+      await postStaleAlert(client, guildId, ev);
+      staleAlerts++;
+    }
+  } catch {
+    // Stale check failure is non-fatal
+  }
+
+  return { processed, errors, staleAlerts };
 }
 
 async function handleTicketCreatedOutbox(
@@ -86,5 +101,32 @@ async function handleTicketCreatedOutbox(
   // Send welcome message
   await (channel as TextChannel).send({
     content: `<@${creatorId}> — Your ticket **${ticketShortId}** has been created.`,
+  });
+}
+
+async function postStaleAlert(
+  client: Client,
+  guildId: string,
+  ev: { id: string; shortId: string | null; title: string; metricCategory: string },
+): Promise<void> {
+  const guild = await client.guilds.fetch(guildId);
+  const opsChannel = guild.channels.cache.find(
+    (ch) => ch.name === "ops-queue" && ch.type === ChannelType.GuildText,
+  ) as TextChannel | undefined;
+
+  if (!opsChannel) return;
+
+  const staleId = ev.shortId ?? ev.id;
+  const embed = new EmbedBuilder()
+    .setTitle("SIG//AGENCY TERMINAL")
+    .setDescription(
+      `STATUS // CODE 408 // REVIEW TIMEOUT\n\n[ STALE — NEEDS RESOLUTION ]\n\nEvidence **${staleId}** has exceeded the 48h review window.\nMetric: \`${ev.metricCategory}\`\nUse \`/director override\` to force-validate or review immediately.`,
+    )
+    .setColor(0xfbbf24)
+    .setTimestamp();
+
+  await opsChannel.send({
+    content: `⚠️ Stale evidence alert: <@&everyone>`,
+    embeds: [embed],
   });
 }
