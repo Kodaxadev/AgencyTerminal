@@ -96,6 +96,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@agency-terminal/core':
+        specifier: workspace:*
+        version: link:../core
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(postgres@3.4.9)

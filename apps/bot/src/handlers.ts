@@ -10,7 +10,6 @@ import {
 } from "discord.js";
 import type { GuildMember } from "discord.js";
 import type { EvidenceRecord, MetricCategory, ReviewRecord } from "@agency-terminal/core";
-import { getQuorumRequirement } from "@agency-terminal/core";
 import {
   createAcceptedEmbed,
   createReviewResultEmbed,
@@ -124,6 +123,7 @@ async function handleEvidenceSubmit(interaction: ChatInputCommandInteraction): P
       metric,
       title,
       description,
+      result.validationRequiredApprovals,
     );
 
     await interaction.editReply({
@@ -326,6 +326,7 @@ function buildEvidenceRecord(
   metricCategory: MetricCategory,
   title: string,
   description: string,
+  validationRequiredApprovals: number,
 ): EvidenceRecord {
   return {
     id,
@@ -337,7 +338,7 @@ function buildEvidenceRecord(
     sensitivity: "member",
     title,
     description,
-    validationRequiredApprovals: getQuorumRequirement(metricCategory),
+    validationRequiredApprovals,
     submittedMode: "live_bot",
     createdAt: new Date(),
     updatedAt: new Date(),

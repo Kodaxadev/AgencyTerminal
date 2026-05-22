@@ -16,9 +16,14 @@ vi.mock("@agency-terminal/db", () => ({
   submitEvidence: dbMocks.submitEvidence,
 }));
 
+const capturedRecords = vi.hoisted(() => [] as Array<{ validationRequiredApprovals: number }>);
+
 vi.mock("@agency-terminal/discord-ui", () => ({
   createAcceptedEmbed: vi.fn((description: string) => ({ description })),
-  createEvidenceSubmissionEmbed: vi.fn((record: { title: string }) => ({ title: record.title })),
+  createEvidenceSubmissionEmbed: vi.fn((record: { validationRequiredApprovals: number }) => {
+    capturedRecords.push(record);
+    return { title: record.validationRequiredApprovals };
+  }),
   createReviewButtons: vi.fn((evidenceId: string) => [`controls:${evidenceId}`]),
   createReviewResultEmbed: vi.fn(() => ({})),
   createStaleEmbed: vi.fn((description: string) => ({ description })),
@@ -27,6 +32,7 @@ vi.mock("@agency-terminal/discord-ui", () => ({
 describe("interaction handler safety", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    capturedRecords.length = 0;
     dbMocks.getCapabilitiesForRoles.mockResolvedValue(["can_override_quorum"]);
   });
 
@@ -51,7 +57,7 @@ describe("interaction handler safety", () => {
   });
 
   it("keeps submitter evidence receipts ephemeral without review controls", async () => {
-    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001" });
+    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001", validationRequiredApprovals: 1 });
     const opsChannel = { send: vi.fn().mockResolvedValue(undefined) };
     const interaction = makeEvidenceSubmitInteraction(opsChannel);
 
@@ -65,7 +71,7 @@ describe("interaction handler safety", () => {
   });
 
   it("routes review controls to the private ops queue projection", async () => {
-    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001" });
+    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001", validationRequiredApprovals: 1 });
     const opsChannel = { send: vi.fn().mockResolvedValue(undefined) };
     const interaction = makeEvidenceSubmitInteraction(opsChannel);
 
@@ -78,7 +84,7 @@ describe("interaction handler safety", () => {
   });
 
   it("fails visibly when review routing has no ops queue", async () => {
-    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001" });
+    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001", validationRequiredApprovals: 1 });
     const interaction = makeEvidenceSubmitInteraction(undefined);
 
     await handleInteraction(interaction as never);
@@ -94,6 +100,28 @@ describe("interaction handler safety", () => {
     await handleInteraction(interaction as never);
 
     expect(interaction.editReply).toHaveBeenCalledWith(expect.stringMatching(/cannot approve evidence/i));
+  });
+
+  it("projects validationRequiredApprovals 1 for technical_development_output from persisted result", async () => {
+    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-tech", shortId: "EVD-0010", validationRequiredApprovals: 1 });
+    const opsChannel = { send: vi.fn().mockResolvedValue(undefined) };
+    const interaction = makeEvidenceSubmitInteraction(opsChannel);
+
+    await handleInteraction(interaction as never);
+
+    expect(capturedRecords).toHaveLength(1);
+    expect(capturedRecords[0].validationRequiredApprovals).toBe(1);
+  });
+
+  it("projects validationRequiredApprovals 2 for pvp_kill_value from persisted result", async () => {
+    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-pvp", shortId: "EVD-0011", validationRequiredApprovals: 2 });
+    const opsChannel = { send: vi.fn().mockResolvedValue(undefined) };
+    const interaction = makeEvidenceSubmitInteraction(opsChannel, "pvp_kill_value");
+
+    await handleInteraction(interaction as never);
+
+    expect(capturedRecords).toHaveLength(1);
+    expect(capturedRecords[0].validationRequiredApprovals).toBe(2);
   });
 });
 
@@ -129,7 +157,7 @@ function makeReviewButtonInteraction() {
   };
 }
 
-function makeEvidenceSubmitInteraction(opsChannel: { send: ReturnType<typeof vi.fn> } | undefined) {
+function makeEvidenceSubmitInteraction(opsChannel: { send: ReturnType<typeof vi.fn> } | undefined, metric = "technical_development_output") {
   const channels = opsChannel
     ? new Map([["ops", { name: "ops-queue", type: 0, send: opsChannel.send }]])
     : new Map();
@@ -145,7 +173,7 @@ function makeEvidenceSubmitInteraction(opsChannel: { send: ReturnType<typeof vi.
       getSubcommand: () => "submit",
       getString: (name: string) => {
         const values: Record<string, string> = {
-          metric: "technical_development_output",
+          metric,
           title: "Test evidence",
           description: "Review this work",
           link: "https://example.invalid/evidence",

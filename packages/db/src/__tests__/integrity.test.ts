@@ -21,8 +21,32 @@ describe("DB integrity helpers", () => {
       getEvidenceIdempotencyResult({
         evidenceId: "ev-2",
         evidenceShortId: "EVD-0002",
+        validationRequiredApprovals: 1,
       }),
-    ).toEqual({ id: "ev-2", shortId: "EVD-0002" });
+    ).toEqual({ id: "ev-2", shortId: "EVD-0002", validationRequiredApprovals: 1 });
+  });
+
+  it("rejects idempotency payloads missing the canonical quorum value", () => {
+    expect(
+      getEvidenceIdempotencyResult({
+        evidenceId: "ev-3",
+        evidenceShortId: "EVD-0003",
+      }),
+    ).toBeNull();
+  });
+
+  it("returns the persisted canonical quorum value on idempotent replay", () => {
+    const payload = {
+      evidenceId: "ev-4",
+      evidenceShortId: "EVD-0004",
+      validationRequiredApprovals: 2,
+    };
+    const result = getEvidenceIdempotencyResult(payload);
+    expect(result).toEqual({
+      id: "ev-4",
+      shortId: "EVD-0004",
+      validationRequiredApprovals: 2,
+    });
   });
 
   it("rejects unrelated idempotency payloads instead of guessing oldest evidence", () => {

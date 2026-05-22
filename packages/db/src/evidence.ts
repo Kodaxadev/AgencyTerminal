@@ -1,3 +1,5 @@
+import type { MetricCategory } from "@agency-terminal/core";
+import { getQuorumRequirement } from "@agency-terminal/core";
 import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
@@ -32,6 +34,7 @@ export interface SubmitEvidenceInput {
 export interface SubmitEvidenceResult {
   id: string;
   shortId: string | null;
+  validationRequiredApprovals: number;
 }
 
 export async function submitEvidence(
@@ -52,6 +55,8 @@ export async function submitEvidence(
       throw new Error("Duplicate evidence submission is already processing");
     }
 
+    const requiredApprovals = getQuorumRequirement(input.metricCategory as MetricCategory);
+
     const [ev] = await tx
       .insert(evidence)
       .values({
@@ -64,13 +69,17 @@ export async function submitEvidence(
         sensitivity: input.sensitivity ?? "member",
         title: input.title,
         description: input.description ?? "",
-        validationRequiredApprovals: 2,
+        validationRequiredApprovals: requiredApprovals,
         eventOccurredAt: input.eventOccurredAt,
         submittedMode: input.submittedMode ?? "live_bot",
         backfillReason: input.backfillReason,
         backfilledBy: input.backfilledBy,
       })
-      .returning({ id: evidence.id, shortId: evidence.shortId });
+      .returning({
+        id: evidence.id,
+        shortId: evidence.shortId,
+        validationRequiredApprovals: evidence.validationRequiredApprovals,
+      });
 
     if (!ev) throw new Error("Failed to create evidence record");
 
@@ -110,9 +119,10 @@ export async function submitEvidence(
     await completeIdempotencyKey(idempotencyKey, {
       evidenceId: ev.id,
       evidenceShortId: ev.shortId,
+      validationRequiredApprovals: ev.validationRequiredApprovals,
     }, tx);
 
-    return ev;
+    return { id: ev.id, shortId: ev.shortId, validationRequiredApprovals: ev.validationRequiredApprovals };
   });
 }
 
