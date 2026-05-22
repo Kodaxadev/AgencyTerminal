@@ -13,6 +13,7 @@ import {
 import { claimIdempotencyKey, completeIdempotencyKey } from "./idempotency";
 import { getEvidenceEventTicketId, getEvidenceIdempotencyResult } from "./integrity";
 import { getReviewRejectionReason } from "./review-eligibility";
+import { enqueueOutbox } from "./outbox";
 
 export interface SubmitEvidenceInput {
   guildId: string;
@@ -75,11 +76,7 @@ export async function submitEvidence(
         backfillReason: input.backfillReason,
         backfilledBy: input.backfilledBy,
       })
-      .returning({
-        id: evidence.id,
-        shortId: evidence.shortId,
-        validationRequiredApprovals: evidence.validationRequiredApprovals,
-      });
+      .returning({ id: evidence.id, shortId: evidence.shortId, validationRequiredApprovals: evidence.validationRequiredApprovals });
 
     if (!ev) throw new Error("Failed to create evidence record");
 
@@ -120,6 +117,13 @@ export async function submitEvidence(
       evidenceId: ev.id,
       evidenceShortId: ev.shortId,
       validationRequiredApprovals: ev.validationRequiredApprovals,
+    }, tx);
+
+    await enqueueOutbox({
+      guildId: input.guildId,
+      eventType: "evidence_review_projection",
+      idempotencyKey: `evidence:review-projection:${input.guildId}:${ev.id}`,
+      payload: { evidenceId: ev.id, evidenceShortId: ev.shortId, submittedByDiscordId: input.submittedByDiscordId, subjectDiscordId: input.subjectDiscordId, metricCategory: input.metricCategory, sensitivity: input.sensitivity ?? "member", title: input.title, description: input.description ?? "", validationRequiredApprovals: ev.validationRequiredApprovals, submittedMode: input.submittedMode ?? "live_bot" },
     }, tx);
 
     return { id: ev.id, shortId: ev.shortId, validationRequiredApprovals: ev.validationRequiredApprovals };
