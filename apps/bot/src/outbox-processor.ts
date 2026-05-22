@@ -273,10 +273,10 @@ async function handleEvidenceReviewProjectionOutbox(
     throw new Error("AGENCY_OPS_QUEUE_CHANNEL_ID not configured");
   }
 
-  const canonicalEvidenceId = msg.payload.evidenceId as string;
   const evidenceRecord = validateReviewProjectionPayload(msg.payload);
+  // Safe: validate already confirmed msg.payload.evidenceId is a non-empty string
+  const canonicalEvidenceId = msg.payload.evidenceId as string;
   const displayId = evidenceRecord.id;
-  const evidenceId = canonicalEvidenceId;
 
   const guild = await client.guilds.fetch(msg.guildId);
   const channel = await guild.channels.fetch(opsQueueChannelId);
@@ -293,15 +293,15 @@ async function handleEvidenceReviewProjectionOutbox(
     throw new Error(`Configured ops-queue channel ${opsQueueChannelId} is viewable by @everyone`);
   }
 
-  if (await hasExistingReviewMarker(channel, evidenceId)) {
+  if (await hasExistingReviewMarker(channel, canonicalEvidenceId)) {
     return;
   }
 
-  const marker = getEvidenceReviewMarker(evidenceId);
+  const marker = getEvidenceReviewMarker(canonicalEvidenceId);
 
   await channel.send({
     content: `Evidence review ${marker}`,
     embeds: [createEvidenceSubmissionEmbed({ ...evidenceRecord, id: displayId })],
-    components: createReviewButtons(evidenceId),
+    components: createReviewButtons(canonicalEvidenceId),
   });
 }
