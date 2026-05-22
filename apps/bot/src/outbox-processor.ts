@@ -22,6 +22,11 @@ import {
   hasExistingStaleAlert,
   shouldMarkStaleAlertNotified,
 } from "./safety";
+import {
+  createEvidenceSubmissionEmbed,
+  createReviewButtons,
+} from "@agency-terminal/discord-ui";
+import type { EvidenceRecord, MetricCategory } from "@agency-terminal/core";
 
 function allowCreator(discordId: string) {
   return {
@@ -48,6 +53,8 @@ export async function processOutbox(
     try {
       if (msg.eventType === "ticket_created") {
         await handleTicketCreatedOutbox(client, msg);
+      } else if (msg.eventType === "evidence_review_projection") {
+        await handleEvidenceReviewProjectionOutbox(client, msg);
       }
       await markOutboxSent(msg.id);
       processed++;
@@ -178,4 +185,79 @@ async function postStaleAlert(
 async function staleAlertAlreadyPosted(channel: TextChannel, evidenceId: string): Promise<boolean> {
   const messages = await channel.messages.fetch({ limit: 50 });
   return hasExistingStaleAlert(Array.from(messages.values()), evidenceId);
+}
+
+function getEvidenceReviewMarker(evidenceId: string): string {
+  return `[evidence-review:${evidenceId}]`;
+}
+
+async function hasExistingReviewMarker(channel: TextChannel, evidenceId: string): Promise<boolean> {
+  const marker = getEvidenceReviewMarker(evidenceId);
+  const messages = await channel.messages.fetch({ limit: 50 });
+  return Array.from(messages.values()).some((m) => m.content?.includes(marker));
+}
+
+async function handleEvidenceReviewProjectionOutbox(
+  client: Client,
+  msg: {
+    id: string;
+    guildId: string;
+    eventType: string;
+    payload: Record<string, unknown>;
+    attempts: number;
+    maxAttempts: number;
+  },
+): Promise<void> {
+  const opsQueueChannelId = process.env.AGENCY_OPS_QUEUE_CHANNEL_ID;
+  if (!opsQueueChannelId) {
+    throw new Error("AGENCY_OPS_QUEUE_CHANNEL_ID not configured");
+  }
+
+  const p = msg.payload;
+  const evidenceId = p.evidenceId as string | undefined;
+  if (!evidenceId) {
+    throw new Error("evidence_review_projection payload missing evidenceId");
+  }
+
+  const guild = await client.guilds.fetch(msg.guildId);
+  const channel = await guild.channels.fetch(opsQueueChannelId);
+
+  if (!channel) {
+    throw new Error(`Configured ops-queue channel ${opsQueueChannelId} not found`);
+  }
+  if (channel.type !== ChannelType.GuildText) {
+    throw new Error(`Configured ops-queue channel ${opsQueueChannelId} is not a guild text channel`);
+  }
+
+  const everyoneOverwrite = channel.permissionOverwrites.resolve(guild.roles.everyone.id);
+  if (!everyoneOverwrite || !everyoneOverwrite.deny?.has(PermissionsBitField.Flags.ViewChannel)) {
+    throw new Error(`Configured ops-queue channel ${opsQueueChannelId} is viewable by @everyone`);
+  }
+
+  if (await hasExistingReviewMarker(channel, evidenceId)) {
+    return;
+  }
+
+  const marker = getEvidenceReviewMarker(evidenceId);
+  const evidenceRecord: EvidenceRecord = {
+    id: evidenceId,
+    guildId: msg.guildId,
+    submittedByDiscordId: p.submittedByDiscordId as string,
+    subjectDiscordId: p.subjectDiscordId as string,
+    metricCategory: p.metricCategory as MetricCategory,
+    status: "under_review",
+    sensitivity: (p.sensitivity as EvidenceRecord["sensitivity"]) ?? "member",
+    title: (p.title as string) ?? "Untitled",
+    description: (p.description as string) ?? "",
+    validationRequiredApprovals: (p.validationRequiredApprovals as number) ?? 2,
+    submittedMode: (p.submittedMode as EvidenceRecord["submittedMode"]) ?? "live_bot",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  await channel.send({
+    content: `Evidence review ${marker}`,
+    embeds: [createEvidenceSubmissionEmbed(evidenceRecord)],
+    components: createReviewButtons(evidenceId),
+  });
 }

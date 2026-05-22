@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ChannelType } from "discord.js";
+import { ChannelType, PermissionsBitField } from "discord.js";
 import { processOutbox } from "../outbox-processor";
 
 const dbMocks = vi.hoisted(() => ({
@@ -14,10 +14,13 @@ const dbMocks = vi.hoisted(() => ({
 
 vi.mock("@agency-terminal/db", () => dbMocks);
 
+const originalEnv = vi.hoisted(() => ({ ...process.env }));
+
 describe("outbox processor channel fetch reconciliation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMocks.findStaleEvidence.mockResolvedValue([]);
+    process.env = { ...originalEnv };
   });
 
   it("uses fetched channels to reconcile ticket channels when cache is empty", async () => {
@@ -109,6 +112,167 @@ describe("outbox processor channel fetch reconciliation", () => {
   });
 });
 
+describe("evidence_review_projection outbox worker", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMocks.findStaleEvidence.mockResolvedValue([]);
+    process.env = { ...originalEnv, AGENCY_OPS_QUEUE_CHANNEL_ID: "ops-channel-1" };
+  });
+
+  function makePrivateOpsChannel(overrides: Record<string, unknown> = {}) {
+    const denyHas = vi.fn().mockReturnValue(true);
+    const denyPermissions = { has: denyHas };
+    const resolve = vi.fn().mockReturnValue({ deny: denyPermissions });
+    return {
+      id: "ops-channel-1",
+      name: "ops-queue",
+      type: 0,
+      send: vi.fn().mockResolvedValue({}),
+      messages: { fetch: vi.fn().mockResolvedValue(new Map()) },
+      permissionOverwrites: { resolve },
+      _denyHas: denyHas,
+      _resolve: resolve,
+      ...overrides,
+    } as unknown as Record<string, unknown>;
+  }
+
+
+  const projectionMsg = {
+    id: "outbox-ev-1",
+    guildId: "guild-1",
+    eventType: "evidence_review_projection",
+    payload: {
+      evidenceId: "ev-proof-1",
+      evidenceShortId: "EVD-0042",
+      submittedByDiscordId: "user-submitter",
+      subjectDiscordId: "user-subject",
+      metricCategory: "technical_development_output",
+      sensitivity: "member",
+      title: "Proof of work",
+      description: "Implemented feature X",
+      validationRequiredApprovals: 1,
+      submittedMode: "live_bot",
+    },
+    attempts: 0,
+    maxAttempts: 5,
+  };
+
+  it("recognizes and sends an evidence_review_projection event", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const opsChannel = makePrivateOpsChannel();
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(opsChannel.send).toHaveBeenCalledOnce();
+    expect(dbMocks.markOutboxSent).toHaveBeenCalledWith("outbox-ev-1");
+  });
+
+  it("includes [evidence-review:{evidenceId}] marker in the message", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const opsChannel = makePrivateOpsChannel();
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    const sendMock = opsChannel.send as ReturnType<typeof vi.fn>;
+    const [payload] = sendMock.mock.calls[0] as [{ content: string }];
+    expect(payload.content).toContain("[evidence-review:ev-proof-1]");
+  });
+
+  it("posted card uses payload validationRequiredApprovals", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const opsChannel = makePrivateOpsChannel();
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    const sendMock = opsChannel.send as ReturnType<typeof vi.fn>;
+    const [payload] = sendMock.mock.calls[0] as [{ embeds: Array<{ data: Record<string, unknown> }> }];
+    const fields = payload.embeds[0].data.fields as Array<{ name: string; value: string }>;
+    const approvalsField = fields.find((f) => f.name === "REQUIRED APPROVALS");
+    expect(approvalsField?.value).toBe("1");
+  });
+
+  it("raw URL is absent from worker output", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const opsChannel = makePrivateOpsChannel();
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    const sendMock = opsChannel.send as ReturnType<typeof vi.fn>;
+    const [payload] = sendMock.mock.calls[0] as [{ content: string; embeds: unknown[]; components: unknown[] }];
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("http");
+  });
+
+  it("uses configured private ops channel by ID", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    process.env.AGENCY_OPS_QUEUE_CHANNEL_ID = "custom-ops-999";
+    const opsChannel = makePrivateOpsChannel({ id: "custom-ops-999" });
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(opsChannel.send).toHaveBeenCalledOnce();
+  });
+
+  it("missing configured channel causes markOutboxFailed, not markOutboxSent", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(dbMocks.markOutboxFailed).toHaveBeenCalledWith("outbox-ev-1", expect.any(String));
+    expect(dbMocks.markOutboxSent).not.toHaveBeenCalled();
+  });
+
+  it("configured channel viewable by @everyone causes markOutboxFailed and no send", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const resolve = vi.fn().mockReturnValue(null);
+    const opsChannel = makePrivateOpsChannel({
+      permissionOverwrites: { resolve },
+    });
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(dbMocks.markOutboxFailed).toHaveBeenCalledWith("outbox-ev-1", expect.stringMatching(/viewable by @everyone/i));
+    expect(opsChannel.send).not.toHaveBeenCalled();
+  });
+
+  it("existing marker causes reconciliation without a duplicate send", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const opsChannel = makePrivateOpsChannel({
+      messages: {
+        fetch: vi.fn().mockResolvedValue(
+          new Map([["msg-1", { content: "Evidence review [evidence-review:ev-proof-1]" }]]),
+        ),
+      },
+    });
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(opsChannel.send).not.toHaveBeenCalled();
+    expect(dbMocks.markOutboxSent).toHaveBeenCalledWith("outbox-ev-1");
+  });
+
+  it("Discord send failure causes retry/failure marking", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const opsChannel = makePrivateOpsChannel({
+      send: vi.fn().mockRejectedValue(new Error("Discord API 500")),
+    });
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(dbMocks.markOutboxFailed).toHaveBeenCalledWith("outbox-ev-1", expect.stringMatching(/Discord API 500/i));
+    expect(dbMocks.markOutboxSent).not.toHaveBeenCalled();
+  });
+});
+
 function ticketCreatedMessage() {
   return {
     id: "outbox-1",
@@ -131,13 +295,19 @@ function makeClient(input: {
   fetchedChannels: Array<Record<string, unknown>>;
   create: ReturnType<typeof vi.fn>;
 }) {
+  const channelMap = new Map(input.fetchedChannels.map((channel) => [channel.id, channel]));
+  const fetchFn = vi.fn().mockResolvedValue(channelMap);
+  fetchFn.mockImplementation(async (id?: string) => {
+    if (id) return channelMap.get(id) ?? null;
+    return channelMap;
+  });
   return {
     guilds: {
       fetch: vi.fn().mockResolvedValue({
         roles: { everyone: { id: "guild-everyone" } },
         channels: {
           cache: new Map(input.cachedChannels.map((channel) => [channel.id, channel])),
-          fetch: vi.fn().mockResolvedValue(new Map(input.fetchedChannels.map((channel) => [channel.id, channel]))),
+          fetch: fetchFn,
           create: input.create,
         },
       }),
