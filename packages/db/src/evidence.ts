@@ -10,6 +10,7 @@ import {
 } from "../schema/drizzle-schema";
 import { claimIdempotencyKey, completeIdempotencyKey } from "./idempotency";
 import { getEvidenceEventTicketId, getEvidenceIdempotencyResult } from "./integrity";
+import { getReviewRejectionReason } from "./review-eligibility";
 
 export interface SubmitEvidenceInput {
   guildId: string;
@@ -135,7 +136,7 @@ export async function addReview(
   input: AddReviewInput,
   idempotencyKey: string,
 ): Promise<AddReviewResult> {
-  return db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx): Promise<AddReviewResult | { rejectedReason: string }> => {
     const claim = await claimIdempotencyKey({
       key: idempotencyKey,
       guildId: input.guildId,
@@ -144,9 +145,46 @@ export async function addReview(
     }, tx);
 
     if (!claim.acquired) {
+      if (typeof claim.result?.rejectedReason === "string") {
+        throw new Error(claim.result.rejectedReason);
+      }
       const result = getReviewIdempotencyResult(claim.result);
       if (result) return result;
       throw new Error("Duplicate review submission is already processing");
+    }
+
+    const ev = await tx
+      .select({
+        requiredApprovals: evidence.validationRequiredApprovals,
+        status: evidence.status,
+        submittedByDiscordId: evidence.submittedByDiscordId,
+        subjectDiscordId: evidence.subjectDiscordId,
+      })
+      .from(evidence)
+      .where(eq(evidence.id, input.evidenceId))
+      .limit(1);
+
+    if (ev.length === 0) throw new Error("Evidence not found");
+
+    const evidenceRecord = ev[0];
+    const rejectionReason = getReviewRejectionReason(input, evidenceRecord);
+    if (rejectionReason) {
+      await tx.insert(auditLog).values({
+        guildId: input.guildId,
+        actorDiscordId: input.reviewerDiscordId,
+        action: "evidence_review_rejected",
+        subjectType: "evidence",
+        subjectId: input.evidenceId,
+        sensitivity: "officer_only",
+        payload: {
+          decision: input.decision,
+          reason: rejectionReason,
+          conflictDisclosed: input.conflictDisclosed ?? false,
+          idempotencyKey,
+        } as Record<string, unknown>,
+      });
+      await completeIdempotencyKey(idempotencyKey, { rejectedReason: rejectionReason }, tx);
+      return { rejectedReason: rejectionReason };
     }
 
     const [review] = await tx
@@ -170,21 +208,14 @@ export async function addReview(
         and(
           eq(evidenceReviews.evidenceId, input.evidenceId),
           eq(evidenceReviews.decision, "approve"),
+          eq(evidenceReviews.conflictDisclosed, false),
+          sql`${evidenceReviews.reviewerDiscordId} <> ${evidenceRecord.submittedByDiscordId}`,
+          evidenceRecord.subjectDiscordId
+            ? sql`${evidenceReviews.reviewerDiscordId} <> ${evidenceRecord.subjectDiscordId}`
+            : sql`true`,
         ),
       );
 
-    const ev = await tx
-      .select({
-        requiredApprovals: evidence.validationRequiredApprovals,
-        status: evidence.status,
-      })
-      .from(evidence)
-      .where(eq(evidence.id, input.evidenceId))
-      .limit(1);
-
-    if (ev.length === 0) throw new Error("Evidence not found");
-
-    const evidenceRecord = ev[0];
     const quorumReached = Number(approvals[0]?.count ?? 0) >= evidenceRecord.requiredApprovals;
     if (quorumReached && evidenceRecord.status === "under_review") {
       await tx
@@ -215,6 +246,9 @@ export async function addReview(
     await completeIdempotencyKey(idempotencyKey, result, tx);
     return result;
   });
+
+  if ("rejectedReason" in outcome) throw new Error(outcome.rejectedReason);
+  return outcome;
 }
 
 export interface CreditScoreInput {

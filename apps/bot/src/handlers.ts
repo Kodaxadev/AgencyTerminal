@@ -13,8 +13,6 @@ import type { EvidenceRecord, MetricCategory, ReviewRecord } from "@agency-termi
 import { getQuorumRequirement } from "@agency-terminal/core";
 import {
   createAcceptedEmbed,
-  createEvidenceSubmissionEmbed,
-  createReviewButtons,
   createReviewResultEmbed,
   createStaleEmbed,
 } from "@agency-terminal/discord-ui";
@@ -33,6 +31,7 @@ import {
   getEvidenceLinkReply,
   getQuorumReachedReply,
 } from "./safety";
+import { postEvidenceReviewProjection } from "./review-routing";
 
 export async function handleInteraction(interaction: Interaction): Promise<void> {
   if (interaction.isChatInputCommand()) {
@@ -129,15 +128,19 @@ async function handleEvidenceSubmit(interaction: ChatInputCommandInteraction): P
 
     await interaction.editReply({
       content: `Evidence **${result.shortId ?? result.id}** submitted for review.`,
-      embeds: [createEvidenceSubmissionEmbed(record)],
-      components: createReviewButtons(result.id),
     });
 
     if (link) await interaction.followUp(getEvidenceLinkReply(link));
+    await postEvidenceReviewProjection(interaction, record, result.id);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (isDbError(message)) {
       await interaction.editReply(getDbUnavailableReply("evidence"));
+      return;
+    }
+    if (message.includes("Review routing failed")) {
+      console.error("Evidence review routing failed:", message);
+      await interaction.editReply(`Evidence was recorded, but ${message}`);
       return;
     }
     throw err;
@@ -174,7 +177,7 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
           .setCustomId("conflict")
-          .setLabel("Do you have any conflict of interest? Type No if none.")
+          .setLabel("Conflict of interest? Type No if none.")
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
           .setMaxLength(200),
@@ -277,8 +280,16 @@ async function handleReviewModal(interaction: ModalSubmitInteraction): Promise<v
       await interaction.editReply(getDbUnavailableReply("review"));
       return;
     }
+    if (isReviewRejection(message)) {
+      await interaction.editReply(message);
+      return;
+    }
     throw err;
   }
+}
+
+function isReviewRejection(message: string): boolean {
+  return message.includes("cannot approve evidence");
 }
 
 async function userCanReview(
