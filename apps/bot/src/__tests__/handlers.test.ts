@@ -16,23 +16,19 @@ vi.mock("@agency-terminal/db", () => ({
   submitEvidence: dbMocks.submitEvidence,
 }));
 
-const capturedRecords = vi.hoisted(() => [] as Array<{ validationRequiredApprovals: number }>);
-
-vi.mock("@agency-terminal/discord-ui", () => ({
+const uiMocks = vi.hoisted(() => ({
   createAcceptedEmbed: vi.fn((description: string) => ({ description })),
-  createEvidenceSubmissionEmbed: vi.fn((record: { validationRequiredApprovals: number }) => {
-    capturedRecords.push(record);
-    return { title: record.validationRequiredApprovals };
-  }),
-  createReviewButtons: vi.fn((evidenceId: string) => [`controls:${evidenceId}`]),
+  createEvidenceSubmissionEmbed: vi.fn(),
+  createReviewButtons: vi.fn(),
   createReviewResultEmbed: vi.fn(() => ({})),
   createStaleEmbed: vi.fn((description: string) => ({ description })),
 }));
 
+vi.mock("@agency-terminal/discord-ui", () => uiMocks);
+
 describe("interaction handler safety", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    capturedRecords.length = 0;
     dbMocks.getCapabilitiesForRoles.mockResolvedValue(["can_override_quorum"]);
   });
 
@@ -58,8 +54,7 @@ describe("interaction handler safety", () => {
 
   it("keeps submitter evidence receipts ephemeral without review controls", async () => {
     dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001", validationRequiredApprovals: 1 });
-    const opsChannel = { send: vi.fn().mockResolvedValue(undefined) };
-    const interaction = makeEvidenceSubmitInteraction(opsChannel);
+    const interaction = makeEvidenceSubmitInteraction();
 
     await handleInteraction(interaction as never);
 
@@ -70,26 +65,49 @@ describe("interaction handler safety", () => {
     expect(JSON.stringify(interaction.editReply.mock.calls)).not.toContain("https://example.invalid/evidence");
   });
 
-  it("routes review controls to the private ops queue projection", async () => {
-    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001", validationRequiredApprovals: 1 });
-    const opsChannel = { send: vi.fn().mockResolvedValue(undefined) };
-    const interaction = makeEvidenceSubmitInteraction(opsChannel);
+  it("evidence submission calls submitEvidence and returns queued-review acknowledgement", async () => {
+    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0042", validationRequiredApprovals: 1 });
+    const interaction = makeEvidenceSubmitInteraction();
 
     await handleInteraction(interaction as never);
 
-    expect(opsChannel.send).toHaveBeenCalledWith(expect.objectContaining({
-      components: ["controls:ev-1"],
-    }));
-    expect(JSON.stringify(opsChannel.send.mock.calls)).not.toContain("https://example.invalid/evidence");
+    expect(dbMocks.submitEvidence).toHaveBeenCalledOnce();
+    const [replyArg] = interaction.editReply.mock.calls[0] as [{ content: string }];
+    expect(replyArg.content).toContain("EVD-0042");
+    expect(replyArg.content).toContain("recorded and queued for private review");
   });
 
-  it("fails visibly when review routing has no ops queue", async () => {
+  it("submission acknowledgement contains no inline review components", async () => {
     dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001", validationRequiredApprovals: 1 });
-    const interaction = makeEvidenceSubmitInteraction(undefined);
+    const interaction = makeEvidenceSubmitInteraction();
 
     await handleInteraction(interaction as never);
 
-    expect(interaction.editReply).toHaveBeenLastCalledWith(expect.stringMatching(/routing failed/i));
+    for (const [arg] of interaction.editReply.mock.calls as [{ components?: unknown }][]) {
+      expect(arg.components).toBeUndefined();
+    }
+  });
+
+  it("handler does not invoke evidence submission embed or review buttons after submission", async () => {
+    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001", validationRequiredApprovals: 1 });
+    const interaction = makeEvidenceSubmitInteraction();
+
+    await handleInteraction(interaction as never);
+
+    expect(uiMocks.createEvidenceSubmissionEmbed).not.toHaveBeenCalled();
+    expect(uiMocks.createReviewButtons).not.toHaveBeenCalled();
+  });
+
+  it("handler does not access guild channels for evidence submission", async () => {
+    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-1", shortId: "EVD-0001", validationRequiredApprovals: 1 });
+    // No guild property — accessing guild.channels.fetch would throw and fail this test
+    const interaction = makeEvidenceSubmitInteraction();
+
+    await handleInteraction(interaction as never);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining("queued for private review") }),
+    );
   });
 
   it("returns a truthful denial when approval is rejected by the domain service", async () => {
@@ -100,28 +118,6 @@ describe("interaction handler safety", () => {
     await handleInteraction(interaction as never);
 
     expect(interaction.editReply).toHaveBeenCalledWith(expect.stringMatching(/cannot approve evidence/i));
-  });
-
-  it("projects validationRequiredApprovals 1 for technical_development_output from persisted result", async () => {
-    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-tech", shortId: "EVD-0010", validationRequiredApprovals: 1 });
-    const opsChannel = { send: vi.fn().mockResolvedValue(undefined) };
-    const interaction = makeEvidenceSubmitInteraction(opsChannel);
-
-    await handleInteraction(interaction as never);
-
-    expect(capturedRecords).toHaveLength(1);
-    expect(capturedRecords[0].validationRequiredApprovals).toBe(1);
-  });
-
-  it("projects validationRequiredApprovals 2 for pvp_kill_value from persisted result", async () => {
-    dbMocks.submitEvidence.mockResolvedValueOnce({ id: "ev-pvp", shortId: "EVD-0011", validationRequiredApprovals: 2 });
-    const opsChannel = { send: vi.fn().mockResolvedValue(undefined) };
-    const interaction = makeEvidenceSubmitInteraction(opsChannel, "pvp_kill_value");
-
-    await handleInteraction(interaction as never);
-
-    expect(capturedRecords).toHaveLength(1);
-    expect(capturedRecords[0].validationRequiredApprovals).toBe(2);
   });
 });
 
@@ -157,17 +153,13 @@ function makeReviewButtonInteraction() {
   };
 }
 
-function makeEvidenceSubmitInteraction(opsChannel: { send: ReturnType<typeof vi.fn> } | undefined, metric = "technical_development_output") {
-  const channels = opsChannel
-    ? new Map([["ops", { name: "ops-queue", type: 0, send: opsChannel.send }]])
-    : new Map();
+function makeEvidenceSubmitInteraction(metric = "technical_development_output") {
   return {
     isChatInputCommand: () => true,
     isButton: () => false,
     isModalSubmit: () => false,
     commandName: "evidence",
     guildId: "guild-1",
-    guild: { channels: { fetch: vi.fn().mockResolvedValue(channels) } },
     user: { id: "submitter-1" },
     options: {
       getSubcommand: () => "submit",

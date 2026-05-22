@@ -9,7 +9,7 @@ import {
   TextInputStyle,
 } from "discord.js";
 import type { GuildMember } from "discord.js";
-import type { EvidenceRecord, MetricCategory, ReviewRecord } from "@agency-terminal/core";
+import type { MetricCategory, ReviewRecord } from "@agency-terminal/core";
 import {
   createAcceptedEmbed,
   createReviewResultEmbed,
@@ -30,7 +30,6 @@ import {
   getEvidenceLinkReply,
   getQuorumReachedReply,
 } from "./safety";
-import { postEvidenceReviewProjection } from "./review-routing";
 
 export async function handleInteraction(interaction: Interaction): Promise<void> {
   if (interaction.isChatInputCommand()) {
@@ -115,32 +114,15 @@ async function handleEvidenceSubmit(interaction: ChatInputCommandInteraction): P
       linkSourceType: link ? "manual" : undefined,
     }, `evidence:submit:${guildId}:${interaction.id}`);
 
-    const record = buildEvidenceRecord(
-      result.shortId ?? result.id,
-      guildId,
-      interaction.user.id,
-      subjectDiscordId,
-      metric,
-      title,
-      description,
-      result.validationRequiredApprovals,
-    );
-
     await interaction.editReply({
-      content: `Evidence **${result.shortId ?? result.id}** submitted for review.`,
+      content: `Evidence **${result.shortId ?? result.id}** recorded and queued for private review.`,
     });
 
     if (link) await interaction.followUp(getEvidenceLinkReply(link));
-    await postEvidenceReviewProjection(interaction, record, result.id);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (isDbError(message)) {
       await interaction.editReply(getDbUnavailableReply("evidence"));
-      return;
-    }
-    if (message.includes("Review routing failed")) {
-      console.error("Evidence review routing failed:", message);
-      await interaction.editReply(`Evidence was recorded, but ${message}`);
       return;
     }
     throw err;
@@ -318,32 +300,6 @@ function mapReviewDecision(decision: string | undefined): "approve" | "object" |
   return "needs_more_evidence";
 }
 
-function buildEvidenceRecord(
-  id: string,
-  guildId: string,
-  submittedByDiscordId: string,
-  subjectDiscordId: string,
-  metricCategory: MetricCategory,
-  title: string,
-  description: string,
-  validationRequiredApprovals: number,
-): EvidenceRecord {
-  return {
-    id,
-    guildId,
-    submittedByDiscordId,
-    subjectDiscordId,
-    metricCategory,
-    status: "under_review",
-    sensitivity: "member",
-    title,
-    description,
-    validationRequiredApprovals,
-    submittedMode: "live_bot",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-}
 
 function getTicketConfig(
   interaction: ChatInputCommandInteraction,
