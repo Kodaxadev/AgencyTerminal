@@ -43,27 +43,6 @@ describe("outbox processor channel fetch reconciliation", () => {
     }));
   });
 
-  it("uses fetched channels to find ops queue when cache is empty", async () => {
-    dbMocks.claimDueOutbox.mockResolvedValue([]);
-    dbMocks.findStaleEvidence.mockResolvedValue([
-      { id: "ev-1", shortId: "EVD-1", title: "Evidence", metricCategory: "fleet_participation" },
-    ]);
-    const send = vi.fn().mockResolvedValue({});
-    const messages = { fetch: vi.fn().mockResolvedValue(new Map()) };
-    const opsChannel = { id: "ops-1", name: "ops-queue", type: ChannelType.GuildText, send, messages };
-    const client = makeClient({
-      cachedChannels: [],
-      fetchedChannels: [opsChannel],
-      create: vi.fn(),
-    });
-
-    await processOutbox(client, "guild-1", 1);
-
-    const [payload] = send.mock.calls[0] as [{ content: string }];
-    expect(payload.content).toContain("stale-alert:ev-1");
-    expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-1");
-  });
-
   it("does not crash outbox processing when stale evidence scan fails", async () => {
     dbMocks.claimDueOutbox.mockResolvedValue([ticketCreatedMessage()]);
     dbMocks.findStaleEvidence.mockRejectedValue(new Error("Database connection failed"));

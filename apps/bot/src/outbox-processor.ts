@@ -153,13 +153,20 @@ async function postStaleAlert(
   guildId: string,
   ev: { id: string; shortId: string | null; title: string; metricCategory: string },
 ): Promise<"sent" | "missing_ops_channel" | "send_failed"> {
-  const guild = await client.guilds.fetch(guildId);
-  const fetchedChannels = await guild.channels.fetch();
-  const opsChannel = Array.from(fetchedChannels.values()).filter((channel) => channel !== null).find(
-    (ch) => ch.name === "ops-queue" && ch.type === ChannelType.GuildText,
-  ) as TextChannel | undefined;
+  const opsQueueChannelId = process.env.AGENCY_OPS_QUEUE_CHANNEL_ID;
+  if (!opsQueueChannelId) return "missing_ops_channel";
 
-  if (!opsChannel) return "missing_ops_channel";
+  const guild = await client.guilds.fetch(guildId);
+  const channel = await guild.channels.fetch(opsQueueChannelId);
+
+  if (!channel || channel.type !== ChannelType.GuildText) return "missing_ops_channel";
+
+  const everyoneOverwrite = channel.permissionOverwrites.resolve(guild.roles.everyone.id);
+  if (!everyoneOverwrite || !everyoneOverwrite.deny?.has(PermissionsBitField.Flags.ViewChannel)) {
+    return "missing_ops_channel";
+  }
+
+  const opsChannel = channel as TextChannel;
   if (await staleAlertAlreadyPosted(opsChannel, ev.id)) return "sent";
 
   const staleId = ev.shortId ?? ev.id;
