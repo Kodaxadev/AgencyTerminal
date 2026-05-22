@@ -4,10 +4,13 @@ import {
   buildDenyEveryoneOverwrite,
   canHandleOverride,
   canHandleReview,
+  findExistingTicketChannel,
   getDbUnavailableReply,
   getEvidenceLinkReply,
   getQuorumReachedReply,
   getStaleAlertContent,
+  getTicketChannelTopic,
+  hasExistingStaleAlert,
   shouldMarkStaleAlertNotified,
 } from "../safety";
 
@@ -50,6 +53,24 @@ describe("bot safety helpers", () => {
     expect(shouldMarkStaleAlertNotified("sent")).toBe(true);
     expect(shouldMarkStaleAlertNotified("missing_ops_channel")).toBe(false);
     expect(shouldMarkStaleAlertNotified("send_failed")).toBe(false);
+  });
+
+  it("marks ticket channels with deterministic ticket metadata", () => {
+    expect(getTicketChannelTopic("Contract", "TKT-1", "ticket-uuid")).toContain("agency-ticket:ticket-uuid");
+  });
+
+  it("detects existing ticket channels before retry creates duplicates", () => {
+    const existing = findExistingTicketChannel([
+      { id: "channel-1", topic: "Contract | TKT-1 [agency-ticket:ticket-uuid]" },
+      { id: "channel-2", topic: "Other" },
+    ], "ticket-uuid");
+
+    expect(existing?.id).toBe("channel-1");
+  });
+
+  it("detects already-posted stale alerts before retry posts duplicates", () => {
+    expect(getStaleAlertContent("ev-1")).toContain("stale-alert:ev-1");
+    expect(hasExistingStaleAlert([{ content: "Stale evidence alert [stale-alert:ev-1]" }], "ev-1")).toBe(true);
   });
 
   it("uses the guild everyone role id for private channel denial", () => {

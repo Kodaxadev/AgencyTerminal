@@ -5,6 +5,7 @@ const update = vi.fn();
 const insert = vi.fn();
 const set = vi.fn();
 const where = vi.fn();
+const returning = vi.fn();
 const values = vi.fn();
 
 vi.mock("../client", () => ({
@@ -14,9 +15,10 @@ vi.mock("../client", () => ({
 describe("directorOverrideEvidence", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    where.mockResolvedValue(undefined);
-    set.mockReturnValue({ where });
+    returning.mockResolvedValue([{ id: "ev-1" }]);
+    where.mockReturnValue({ returning });
     update.mockReturnValue({ set });
+    set.mockReturnValue({ where });
     values.mockResolvedValue(undefined);
     insert.mockReturnValue({ values });
     transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
@@ -41,12 +43,23 @@ describe("directorOverrideEvidence", () => {
   });
 
   it("does not write audit when the evidence update fails", async () => {
-    where.mockRejectedValueOnce(new Error("update failed"));
+    returning.mockRejectedValueOnce(new Error("update failed"));
     const { directorOverrideEvidence } = await import("../evidence");
 
     await expect(
       directorOverrideEvidence("ev-1", "director-1", "Timeout quorum correction", "guild-1"),
     ).rejects.toThrow("update failed");
+
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("does not write audit when evidence does not exist", async () => {
+    returning.mockResolvedValueOnce([]);
+    const { directorOverrideEvidence } = await import("../evidence");
+
+    await expect(
+      directorOverrideEvidence("missing-ev", "director-1", "Timeout quorum correction", "guild-1"),
+    ).rejects.toThrow(/not found/i);
 
     expect(insert).not.toHaveBeenCalled();
   });

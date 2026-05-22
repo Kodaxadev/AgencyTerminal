@@ -315,10 +315,15 @@ export async function directorOverrideEvidence(
   guildId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx
+    const updated = await tx
       .update(evidence)
       .set({ status: "validated", validatedAt: new Date() })
-      .where(eq(evidence.id, evidenceId));
+      .where(eq(evidence.id, evidenceId))
+      .returning({ id: evidence.id });
+
+    if (updated.length === 0) {
+      throw new Error(`Evidence not found: ${evidenceId}`);
+    }
 
     await tx.insert(auditLog).values({
       guildId,

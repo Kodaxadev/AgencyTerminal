@@ -12,10 +12,14 @@ import {
   markOutboxFailed,
   markOutboxSent,
   persistTicketChannelId,
+  writeAuditLog,
 } from "@agency-terminal/db";
 import {
   buildDenyEveryoneOverwrite,
+  findExistingTicketChannel,
   getStaleAlertContent,
+  getTicketChannelTopic,
+  hasExistingStaleAlert,
   shouldMarkStaleAlertNotified,
 } from "./safety";
 
@@ -89,12 +93,29 @@ async function handleTicketCreatedOutbox(
   const title = (p.title as string) ?? "Ticket";
   const ticketId = p.ticketId as string | undefined;
   const channelName = `${ticketType}-${ticketShortId}`.toLowerCase().replace(/_/g, "-");
+  const existingChannel = ticketId
+    ? findExistingTicketChannel(Array.from(guild.channels.cache.values()), ticketId)
+    : undefined;
+
+  if (ticketId && existingChannel) {
+    await persistTicketChannelId(ticketId, existingChannel.id);
+    await writeAuditLog({
+      guildId: msg.guildId,
+      actorDiscordId: "system",
+      action: "discord_channel_reconciled",
+      subjectType: "ticket",
+      subjectId: ticketId,
+      sensitivity: "officer_only",
+      payload: { channelId: existingChannel.id, outboxId: msg.id },
+    });
+    return;
+  }
 
   const channel = await guild.channels.create({
     name: channelName,
     type: ChannelType.GuildText,
     permissionOverwrites: [buildDenyEveryoneOverwrite(guild.roles.everyone.id), allowCreator(creatorId)],
-    topic: `${title} | ${ticketShortId}`,
+    topic: getTicketChannelTopic(title, ticketShortId, ticketId),
     reason: `Ticket ${ticketShortId} created`,
   });
 
@@ -118,6 +139,7 @@ async function postStaleAlert(
   ) as TextChannel | undefined;
 
   if (!opsChannel) return "missing_ops_channel";
+  if (await staleAlertAlreadyPosted(opsChannel, ev.id)) return "sent";
 
   const staleId = ev.shortId ?? ev.id;
   const embed = new EmbedBuilder()
@@ -130,11 +152,16 @@ async function postStaleAlert(
 
   try {
     await opsChannel.send({
-      content: getStaleAlertContent(),
+      content: getStaleAlertContent(ev.id),
       embeds: [embed],
     });
     return "sent";
   } catch {
     return "send_failed";
   }
+}
+
+async function staleAlertAlreadyPosted(channel: TextChannel, evidenceId: string): Promise<boolean> {
+  const messages = await channel.messages.fetch({ limit: 50 });
+  return hasExistingStaleAlert(Array.from(messages.values()), evidenceId);
 }
