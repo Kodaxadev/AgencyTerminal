@@ -66,7 +66,9 @@ async function main() {
     ],
   });
 
-  client.on("interactionCreate", handleInteraction);
+  client.on("interactionCreate", (interaction) => {
+    void handleInteraction(interaction);
+  });
 
   client.once("ready", () => {
     console.log(`SIG//AGENCY TERMINAL — ONLINE`);

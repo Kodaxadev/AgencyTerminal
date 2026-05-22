@@ -1,32 +1,33 @@
 import {
+  ActionRowBuilder,
+  ButtonInteraction,
   ChatInputCommandInteraction,
   Interaction,
-  ButtonInteraction,
   ModalBuilder,
+  ModalSubmitInteraction,
   TextInputBuilder,
   TextInputStyle,
-  ActionRowBuilder,
-  ModalSubmitInteraction,
 } from "discord.js";
-import type { EvidenceRecord, ReviewRecord, MetricCategory } from "@agency-terminal/core";
+import type { GuildMember } from "discord.js";
+import type { EvidenceRecord, MetricCategory, ReviewRecord } from "@agency-terminal/core";
+import { getQuorumRequirement } from "@agency-terminal/core";
 import {
-  evaluateQuorum,
-  getQuorumRequirement,
-} from "@agency-terminal/core";
-import {
-  createEvidenceSubmissionEmbed,
-  createEvidenceStatusEmbed,
   createAcceptedEmbed,
-  createReviewResultEmbed,
+  createEvidenceSubmissionEmbed,
   createReviewButtons,
+  createReviewResultEmbed,
   createStaleEmbed,
-  createAuditLogEmbed,
 } from "@agency-terminal/discord-ui";
-import { createTicket, submitEvidence, addReview, writeAuditLog, directorOverrideEvidence } from "@agency-terminal/db";
-
-// In-memory fallback for dev when DB is unavailable
-const evidenceStore = new Map<string, { record: EvidenceRecord; reviews: ReviewRecord[] }>();
-let dbAvailable = true;
+import {
+  addReview,
+  createTicket,
+  directorOverrideEvidence,
+  getCapabilitiesForRoles,
+  submitEvidence,
+  writeAuditLog,
+} from "@agency-terminal/db";
+import type { TicketType } from "@agency-terminal/db";
+import { canHandleReview, getDbUnavailableReply, getEvidenceLinkReply } from "./safety";
 
 export async function handleInteraction(interaction: Interaction): Promise<void> {
   if (interaction.isChatInputCommand()) {
@@ -43,17 +44,12 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   const subcommand = interaction.options.getSubcommand();
 
   if (commandName === "evidence") {
-    if (subcommand === "submit") {
-      await handleEvidenceSubmit(interaction);
-    } else if (subcommand === "status") {
-      await handleEvidenceStatus(interaction);
-    }
+    if (subcommand === "submit") await handleEvidenceSubmit(interaction);
+    if (subcommand === "status") await handleEvidenceStatus(interaction);
   } else if (commandName === "ticket") {
     await handleTicketCommand(interaction);
-  } else if (commandName === "director") {
-    if (subcommand === "override") {
-      await handleDirectorOverride(interaction);
-    }
+  } else if (commandName === "director" && subcommand === "override") {
+    await handleDirectorOverride(interaction);
   }
 }
 
@@ -62,25 +58,7 @@ async function handleTicketCommand(interaction: ChatInputCommandInteraction): Pr
 
   const subcommand = interaction.options.getSubcommand();
   const guildId = interaction.guildId!;
-  const creatorDiscordId = interaction.user.id;
-
-  // Create a temporary channel-like ID for the ticket
-  const channelId = `ticket-${subcommand}-${Date.now()}`;
-  const idempotencyKey = `ticket:create:${guildId}:${interaction.id}`;
-
-  const typeMap: Record<string, { title: string; summary?: string; extra?: Record<string, string> }> = {
-    enlistment: { title: "Enlistment Request" },
-    contract: {
-      title: interaction.options.getString("title") ?? "Contract",
-      summary: interaction.options.getString("target") ? `Target: ${interaction.options.getString("target")}` : undefined,
-    },
-    intel: { title: interaction.options.getString("title") ?? "Intel Report" },
-    clearance: { title: `Clearance Request: ${interaction.options.getString("level") ?? "unknown"}` },
-    doctrine: { title: interaction.options.getString("title") ?? "Doctrine Challenge" },
-    general: { title: interaction.options.getString("title") ?? "General Ticket" },
-  };
-
-  const config = typeMap[subcommand];
+  const config = getTicketConfig(interaction, subcommand);
   if (!config) {
     await interaction.editReply(`Unknown ticket type: ${subcommand}`);
     return;
@@ -89,31 +67,25 @@ async function handleTicketCommand(interaction: ChatInputCommandInteraction): Pr
   try {
     const result = await createTicket({
       guildId,
-      channelId,
-      creatorDiscordId,
-      type: subcommand === "doctrine" ? "doctrine_challenge" : subcommand as any,
+      channelId: `pending:${interaction.id}`,
+      creatorDiscordId: interaction.user.id,
+      type: toTicketType(subcommand),
       title: config.title,
       summary: config.summary,
       ...config.extra,
-    }, idempotencyKey);
+    }, `ticket:create:${guildId}:${interaction.id}`);
 
     const embed = createAcceptedEmbed(
       `Ticket **${result.shortId ?? result.id}** created.\nType: ${subcommand}\nTitle: ${config.title}`,
     );
-
     await interaction.editReply({ embeds: [embed] });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    // If DB is unavailable, fall back to a simulated response for dev
-    if (message.includes("DATABASE_URL") || message.includes("connect") || message.includes("ECONNREFUSED")) {
-      const simulatedId = `TKT-${String(evidenceStore.size + 1).padStart(4, "0")}`;
-      const embed = createAcceptedEmbed(
-        `[DEV MODE — DB unavailable]\nTicket **${simulatedId}** created (simulated).\nType: ${subcommand}\nTitle: ${config.title}`,
-      );
-      await interaction.editReply({ embeds: [embed] });
-    } else {
-      throw err;
+    if (isDbError(message)) {
+      await interaction.editReply(getDbUnavailableReply("ticket"));
+      return;
     }
+    throw err;
   }
 }
 
@@ -125,71 +97,45 @@ async function handleEvidenceSubmit(interaction: ChatInputCommandInteraction): P
   const description = interaction.options.getString("description") ?? "";
   const subjectUser = interaction.options.getUser("subject");
   const link = interaction.options.getString("link");
-
   const subjectDiscordId = subjectUser?.id ?? interaction.user.id;
   const guildId = interaction.guildId!;
-  const idempotencyKey = `evidence:submit:${guildId}:${interaction.id}`;
 
-  if (dbAvailable) {
-    try {
-      const result = await submitEvidence({
-        guildId,
-        submittedByDiscordId: interaction.user.id,
-        subjectDiscordId,
-        metricCategory: metric,
-        title,
-        description,
-        linkUrl: link ?? undefined,
-        linkSourceType: link ? "manual" : undefined,
-      }, idempotencyKey);
+  try {
+    const result = await submitEvidence({
+      guildId,
+      submittedByDiscordId: interaction.user.id,
+      subjectDiscordId,
+      metricCategory: metric,
+      title,
+      description,
+      linkUrl: link ?? undefined,
+      linkSourceType: link ? "manual" : undefined,
+    }, `evidence:submit:${guildId}:${interaction.id}`);
 
-      const record: EvidenceRecord = {
-        id: result.shortId ?? result.id,
-        guildId,
-        submittedByDiscordId: interaction.user.id,
-        subjectDiscordId,
-        metricCategory: metric,
-        status: "under_review",
-        sensitivity: "member",
-        title,
-        description,
-        validationRequiredApprovals: getQuorumRequirement(metric),
-        submittedMode: "live_bot",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
+    const record = buildEvidenceRecord(
+      result.shortId ?? result.id,
+      guildId,
+      interaction.user.id,
+      subjectDiscordId,
+      metric,
+      title,
+      description,
+    );
 
-      const embed = createEvidenceSubmissionEmbed(record);
-      const buttons = createReviewButtons(result.id);
+    await interaction.editReply({
+      content: `Evidence **${result.shortId ?? result.id}** submitted for review.`,
+      embeds: [createEvidenceSubmissionEmbed(record)],
+      components: createReviewButtons(result.id),
+    });
 
-      await interaction.editReply({
-        content: `Evidence **${result.shortId ?? result.id}** submitted for review.`,
-        embeds: [embed],
-        components: buttons,
-      });
-
-      if (link) {
-        await interaction.followUp({ content: `Evidence link: ${link}`, ephemeral: false });
-      }
-
-      await writeAuditLog({
-        guildId,
-        actorDiscordId: interaction.user.id,
-        action: "evidence_submitted",
-        subjectType: "evidence",
-        subjectId: result.id,
-        payload: { metric, title },
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (isDbError(message)) {
-        dbAvailable = false;
-        return handleEvidenceSubmitFallback(interaction, metric, title, description, subjectDiscordId, link);
-      }
-      throw err;
+    if (link) await interaction.followUp(getEvidenceLinkReply(link));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isDbError(message)) {
+      await interaction.editReply(getDbUnavailableReply("evidence"));
+      return;
     }
-  } else {
-    return handleEvidenceSubmitFallback(interaction, metric, title, description, subjectDiscordId, link);
+    throw err;
   }
 }
 
@@ -201,68 +147,21 @@ function isDbError(message: string): boolean {
     message.includes("socket");
 }
 
-async function handleEvidenceSubmitFallback(
-  interaction: ChatInputCommandInteraction,
-  metric: MetricCategory,
-  title: string,
-  description: string,
-  subjectDiscordId: string,
-  link: string | null,
-): Promise<void> {
-  const evidenceId = `EVD-${String(evidenceStore.size + 1).padStart(4, "0")}`;
-
-  const record: EvidenceRecord = {
-    id: evidenceId,
-    guildId: interaction.guildId!,
-    submittedByDiscordId: interaction.user.id,
-    subjectDiscordId,
-    metricCategory: metric,
-    status: "under_review",
-    sensitivity: "member",
-    title,
-    description,
-    validationRequiredApprovals: getQuorumRequirement(metric),
-    submittedMode: "live_bot",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  evidenceStore.set(evidenceId, { record, reviews: [] });
-
-  const embed = createEvidenceSubmissionEmbed(record);
-  const buttons = createReviewButtons(evidenceId);
-
-  await interaction.editReply({
-    content: `[DEV MODE] Evidence **${evidenceId}** submitted for review.`,
-    embeds: [embed],
-    components: buttons,
-  });
-}
-
 async function handleEvidenceStatus(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
-
   const evidenceId = interaction.options.getString("id", true);
-  const entry = evidenceStore.get(evidenceId);
-
-  if (!entry) {
-    await interaction.editReply(`Evidence ${evidenceId} not found.`);
-    return;
-  }
-
-  const { record, reviews } = entry;
-  const quorum = evaluateQuorum(reviews, record.metricCategory);
-  const embed = createEvidenceStatusEmbed(record, quorum.approvals, quorum.required);
-
-  await interaction.editReply({ embeds: [embed] });
+  await interaction.editReply(`Evidence ${evidenceId} status lookup requires the database-backed controls view.`);
 }
 
 async function handleButton(interaction: ButtonInteraction): Promise<void> {
   const [action, type, evidenceId] = interaction.customId.split(":");
-
   if (action !== "review") return;
 
-  // Show conflict disclosure modal
+  if (!await userCanReview(interaction)) {
+    await interaction.reply({ content: "You are not authorized to review evidence.", ephemeral: true });
+    return;
+  }
+
   const modal = new ModalBuilder()
     .setCustomId(`review_modal:${type}:${evidenceId}`)
     .setTitle(`Review: ${type === "approve" ? "Approve" : type === "object" ? "Object" : "Needs More"}`)
@@ -270,7 +169,7 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
           .setCustomId("conflict")
-          .setLabel("Do you have any conflict of interest with this evidence? (Type 'No' if none)")
+          .setLabel("Do you have any conflict of interest? Type No if none.")
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
           .setMaxLength(200),
@@ -298,7 +197,6 @@ async function handleDirectorOverride(interaction: ChatInputCommandInteraction):
 
   try {
     await directorOverrideEvidence(evidenceId, directorDiscordId, reason);
-
     await writeAuditLog({
       guildId,
       actorDiscordId: directorDiscordId,
@@ -312,7 +210,6 @@ async function handleDirectorOverride(interaction: ChatInputCommandInteraction):
     const staleEmbed = createStaleEmbed(
       `Evidence **${evidenceId}** has been force-validated by <@${directorDiscordId}>.\nReason: ${reason}`,
     );
-
     await interaction.editReply({
       content: `Director override applied. Evidence **${evidenceId}** is now validated.`,
       embeds: [staleEmbed],
@@ -324,72 +221,136 @@ async function handleDirectorOverride(interaction: ChatInputCommandInteraction):
 }
 
 async function handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
-  if (interaction.customId.startsWith("review_modal:")) {
-    await handleReviewModal(interaction);
-  }
+  if (interaction.customId.startsWith("review_modal:")) await handleReviewModal(interaction);
 }
 
 async function handleReviewModal(interaction: ModalSubmitInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
 
+  if (!await userCanReview(interaction)) {
+    await interaction.editReply("You are not authorized to review evidence.");
+    return;
+  }
+
   const [, decision, evidenceId] = interaction.customId.split(":");
   const conflictAnswer = interaction.fields.getTextInputValue("conflict");
   const rationale = interaction.fields.getTextInputValue("rationale");
-
   const hasConflict = conflictAnswer.trim().toLowerCase() !== "no" && conflictAnswer.trim().length > 0;
-  const conflictReason = hasConflict ? conflictAnswer.trim() : undefined;
+  const mappedDecision = mapReviewDecision(decision);
 
-  const guildId = interaction.guildId!;
-  const decisionMap: Record<string, "approve" | "object" | "needs_more_evidence"> = {
-    approve: "approve",
-    object: "object",
-    needs_more: "needs_more_evidence",
-  };
-  const mappedDecision = decisionMap[decision] ?? "needs_more_evidence";
+  try {
+    const reviewResult = await addReview({
+      evidenceId,
+      reviewerDiscordId: interaction.user.id,
+      decision: mappedDecision,
+      rationale,
+      guildId: interaction.guildId!,
+      conflictDisclosed: hasConflict,
+      conflictReason: hasConflict ? conflictAnswer.trim() : undefined,
+    }, `review:${evidenceId}:${interaction.user.id}`);
 
-  if (dbAvailable) {
-    try {
-      const idempotencyKey = `review:${evidenceId}:${interaction.user.id}`;
+    const review: ReviewRecord = {
+      evidenceId,
+      reviewerDiscordId: interaction.user.id,
+      decision: mappedDecision,
+      rationale,
+      conflictDisclosed: hasConflict,
+      conflictReason: hasConflict ? conflictAnswer.trim() : undefined,
+      createdAt: new Date(),
+    };
 
-      const reviewResult = await addReview({
-        evidenceId,
-        reviewerDiscordId: interaction.user.id,
-        decision: mappedDecision,
-        rationale,
-        guildId,
-        conflictDisclosed: hasConflict,
-        conflictReason,
-      }, idempotencyKey);
-
-      const review: ReviewRecord = {
-        evidenceId,
-        reviewerDiscordId: interaction.user.id,
-        decision: mappedDecision,
-        rationale,
-        conflictDisclosed: hasConflict,
-        conflictReason,
-        createdAt: new Date(),
-      };
-
-      const resultEmbed = createReviewResultEmbed(review, evidenceId);
-      await interaction.editReply({ embeds: [resultEmbed] });
-
-      if (reviewResult.quorumReached) {
-        await interaction.followUp({
-          content: `**Quorum reached for ${evidenceId}!** Score credit processing...`,
-          ephemeral: false,
-        });
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (isDbError(message)) {
-        dbAvailable = false;
-        await interaction.editReply("DB unavailable — review saved locally for dev sync.");
-      } else {
-        throw err;
-      }
+    await interaction.editReply({ embeds: [createReviewResultEmbed(review, evidenceId)] });
+    if (reviewResult.quorumReached) {
+      await interaction.followUp({
+        content: `**Quorum reached for ${evidenceId}!** Score credit processing...`,
+        ephemeral: false,
+      });
     }
-  } else {
-    await interaction.editReply("DB unavailable — review saved locally for dev sync.");
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isDbError(message)) {
+      await interaction.editReply(getDbUnavailableReply("review"));
+      return;
+    }
+    throw err;
   }
+}
+
+async function userCanReview(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+): Promise<boolean> {
+  if (!interaction.guildId) return false;
+  const capabilities = await getCapabilitiesForRoles(interaction.guildId, getMemberRoleIds(interaction.member));
+  return canHandleReview(capabilities);
+}
+
+function getMemberRoleIds(member: ButtonInteraction["member"]): string[] {
+  const roles = (member as GuildMember | null)?.roles;
+  if (!roles) return [];
+  if (Array.isArray(roles)) return roles;
+  return Array.from(roles.cache.keys());
+}
+
+function mapReviewDecision(decision: string | undefined): "approve" | "object" | "needs_more_evidence" {
+  if (decision === "approve" || decision === "object") return decision;
+  return "needs_more_evidence";
+}
+
+function buildEvidenceRecord(
+  id: string,
+  guildId: string,
+  submittedByDiscordId: string,
+  subjectDiscordId: string,
+  metricCategory: MetricCategory,
+  title: string,
+  description: string,
+): EvidenceRecord {
+  return {
+    id,
+    guildId,
+    submittedByDiscordId,
+    subjectDiscordId,
+    metricCategory,
+    status: "under_review",
+    sensitivity: "member",
+    title,
+    description,
+    validationRequiredApprovals: getQuorumRequirement(metricCategory),
+    submittedMode: "live_bot",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
+function getTicketConfig(
+  interaction: ChatInputCommandInteraction,
+  subcommand: string,
+): { title: string; summary?: string; extra?: Record<string, string> } | null {
+  const typeMap: Record<string, { title: string; summary?: string; extra?: Record<string, string> }> = {
+    enlistment: { title: "Enlistment Request" },
+    contract: {
+      title: interaction.options.getString("title") ?? "Contract",
+      summary: interaction.options.getString("target") ? `Target: ${interaction.options.getString("target")}` : undefined,
+    },
+    intel: { title: interaction.options.getString("title") ?? "Intel Report" },
+    clearance: { title: `Clearance Request: ${interaction.options.getString("level") ?? "unknown"}` },
+    doctrine: { title: interaction.options.getString("title") ?? "Doctrine Challenge" },
+    general: { title: interaction.options.getString("title") ?? "General Ticket" },
+  };
+
+  return typeMap[subcommand] ?? null;
+}
+
+function toTicketType(subcommand: string): TicketType {
+  if (subcommand === "doctrine") return "doctrine_challenge";
+  if (
+    subcommand === "enlistment" ||
+    subcommand === "contract" ||
+    subcommand === "intel" ||
+    subcommand === "clearance" ||
+    subcommand === "general"
+  ) {
+    return subcommand;
+  }
+  throw new Error(`Unsupported ticket type: ${subcommand}`);
 }

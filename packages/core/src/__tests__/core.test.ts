@@ -10,6 +10,7 @@ import {
   computeNetScore,
 } from "../index";
 import type { ReviewRecord, EvidenceRecord, EvidenceSubject, MetricConfig, EvidenceStatus } from "../index";
+import type { MetricCategory } from "../index";
 
 function makeReview(
   reviewerDiscordId: string,
@@ -107,7 +108,7 @@ describe("getQuorumRequirement", () => {
     ["exploration", 1],
     ["lore_discovery", 1],
   ])("%s requires %d approvals", (category, required) => {
-    expect(getQuorumRequirement(category as any)).toBe(required);
+    expect(getQuorumRequirement(category as MetricCategory)).toBe(required);
   });
 });
 

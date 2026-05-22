@@ -1,13 +1,15 @@
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
-  evidence,
-  evidenceReviews,
-  evidenceLinks,
   agentScoreEvents,
   auditLog,
+  evidence,
+  evidenceLinks,
+  evidenceReviews,
   ticketEvents,
 } from "../schema/drizzle-schema";
-import { eq, sql, and } from "drizzle-orm";
+import { claimIdempotencyKey, completeIdempotencyKey } from "./idempotency";
+import { getEvidenceEventTicketId, getEvidenceIdempotencyResult } from "./integrity";
 
 export interface SubmitEvidenceInput {
   guildId: string;
@@ -28,73 +30,82 @@ export interface SubmitEvidenceResult {
   shortId: string | null;
 }
 
-/**
- * Submit evidence to the ledger with optional link and idempotency.
- */
 export async function submitEvidence(
   input: SubmitEvidenceInput,
-  idempotencyKey: string
+  idempotencyKey: string,
 ): Promise<SubmitEvidenceResult> {
-  // Idempotency check
-  const existing = await db
-    .select({ id: ticketEvents.id })
-    .from(ticketEvents)
-    .where(
-      and(
-        sql`${ticketEvents.eventPayload} @> ${JSON.stringify({ idempotencyKey })}`,
-        eq(ticketEvents.eventType, "evidence_submitted")
-      )
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    // Return existing — find the evidence record
-    const ev = await db
-      .select({ id: evidence.id, shortId: evidence.shortId })
-      .from(evidence)
-      .where(eq(evidence.submittedByDiscordId, input.submittedByDiscordId))
-      .orderBy(evidence.createdAt)
-      .limit(1);
-
-    if (ev.length > 0) return ev[0]!;
-  }
-
-  const [ev] = await db
-    .insert(evidence)
-    .values({
+  return db.transaction(async (tx) => {
+    const claim = await claimIdempotencyKey({
+      key: idempotencyKey,
       guildId: input.guildId,
-      ticketId: input.ticketId,
-      submittedByDiscordId: input.submittedByDiscordId,
-      subjectDiscordId: input.subjectDiscordId,
-      metricCategory: input.metricCategory as any,
-      status: "under_review",
-      sensitivity: input.sensitivity ?? "member",
-      title: input.title,
-      description: input.description ?? "",
-      validationRequiredApprovals: 2,
-    })
-    .returning({ id: evidence.id, shortId: evidence.shortId });
+      scope: "evidence:submit",
+      actorDiscordId: input.submittedByDiscordId,
+    }, tx);
 
-  if (!ev) throw new Error("Failed to create evidence record");
+    if (!claim.acquired) {
+      const result = claim.result ? getEvidenceIdempotencyResult(claim.result) : null;
+      if (result) return result;
+      throw new Error("Duplicate evidence submission is already processing");
+    }
 
-  // Attach link if provided
-  if (input.linkUrl) {
-    await db.insert(evidenceLinks).values({
-      evidenceId: ev.id,
-      url: input.linkUrl,
-      sourceType: input.linkSourceType ?? "manual",
+    const [ev] = await tx
+      .insert(evidence)
+      .values({
+        guildId: input.guildId,
+        ticketId: input.ticketId,
+        submittedByDiscordId: input.submittedByDiscordId,
+        subjectDiscordId: input.subjectDiscordId,
+        metricCategory: input.metricCategory as typeof evidence.$inferInsert.metricCategory,
+        status: "under_review",
+        sensitivity: input.sensitivity ?? "member",
+        title: input.title,
+        description: input.description ?? "",
+        validationRequiredApprovals: 2,
+      })
+      .returning({ id: evidence.id, shortId: evidence.shortId });
+
+    if (!ev) throw new Error("Failed to create evidence record");
+
+    if (input.linkUrl) {
+      await tx.insert(evidenceLinks).values({
+        evidenceId: ev.id,
+        url: input.linkUrl,
+        sourceType: input.linkSourceType ?? "manual",
+      });
+    }
+
+    const ticketId = getEvidenceEventTicketId(input.ticketId, ev.id);
+    if (ticketId) {
+      await tx.insert(ticketEvents).values({
+        ticketId,
+        actorDiscordId: input.submittedByDiscordId,
+        eventType: "evidence_submitted",
+        eventPayload: { idempotencyKey, evidenceId: ev.id } as Record<string, unknown>,
+      });
+    }
+
+    await tx.insert(auditLog).values({
+      guildId: input.guildId,
+      actorDiscordId: input.submittedByDiscordId,
+      action: "evidence_submitted",
+      subjectType: "evidence",
+      subjectId: ev.id,
+      sensitivity: (input.sensitivity ?? "officer_only") as typeof auditLog.$inferInsert.sensitivity,
+      payload: {
+        idempotencyKey,
+        metric: input.metricCategory,
+        title: input.title,
+        ticketId: input.ticketId ?? null,
+      } as Record<string, unknown>,
     });
-  }
 
-  // Record event for idempotency tracking
-  await db.insert(ticketEvents).values({
-    ticketId: input.ticketId ?? ev.id,
-    actorDiscordId: input.submittedByDiscordId,
-    eventType: "evidence_submitted",
-    eventPayload: { idempotencyKey, evidenceId: ev.id } as Record<string, unknown>,
+    await completeIdempotencyKey(idempotencyKey, {
+      evidenceId: ev.id,
+      evidenceShortId: ev.shortId,
+    }, tx);
+
+    return ev;
   });
-
-  return ev;
 }
 
 export interface AddReviewInput {
@@ -113,77 +124,87 @@ export interface AddReviewResult {
   quorumReached: boolean;
 }
 
-/**
- * Add a review to an evidence record. Returns whether quorum was reached.
- */
 export async function addReview(
   input: AddReviewInput,
-  idempotencyKey: string
+  idempotencyKey: string,
 ): Promise<AddReviewResult> {
-  // Idempotency: one review per reviewer per evidence
-  const existing = await db
-    .select({ id: evidenceReviews.id })
-    .from(evidenceReviews)
-    .where(
-      sql`${evidenceReviews.evidenceId} = ${input.evidenceId} AND ${evidenceReviews.reviewerDiscordId} = ${input.reviewerDiscordId}`
-    )
-    .limit(1);
+  return db.transaction(async (tx) => {
+    const claim = await claimIdempotencyKey({
+      key: idempotencyKey,
+      guildId: input.guildId,
+      scope: "evidence:review",
+      actorDiscordId: input.reviewerDiscordId,
+    }, tx);
 
-  if (existing.length > 0) {
-    return { id: existing[0]!.id, quorumReached: false };
-  }
+    if (!claim.acquired) {
+      const result = getReviewIdempotencyResult(claim.result);
+      if (result) return result;
+      throw new Error("Duplicate review submission is already processing");
+    }
 
-  const [review] = await db
-    .insert(evidenceReviews)
-    .values({
-      evidenceId: input.evidenceId,
-      reviewerDiscordId: input.reviewerDiscordId,
-      decision: input.decision as any,
-      rationale: input.rationale,
-      conflictDisclosed: input.conflictDisclosed ? "true" : "false",
-      conflictReason: input.conflictReason,
-      qualityTier: input.qualityTier,
-    })
-    .returning({ id: evidenceReviews.id });
+    const [review] = await tx
+      .insert(evidenceReviews)
+      .values({
+        evidenceId: input.evidenceId,
+        reviewerDiscordId: input.reviewerDiscordId,
+        decision: input.decision,
+        rationale: input.rationale,
+        conflictDisclosed: input.conflictDisclosed ? "true" : "false",
+        conflictReason: input.conflictReason,
+        qualityTier: input.qualityTier,
+      })
+      .returning({ id: evidenceReviews.id });
 
-  if (!review) throw new Error("Failed to create review");
+    if (!review) throw new Error("Failed to create review");
 
-  // Count approvals for this evidence
-  const approvals = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(evidenceReviews)
-    .where(
-      and(
-        eq(evidenceReviews.evidenceId, input.evidenceId),
-        eq(evidenceReviews.decision, "approve" as any)
-      )
-    );
+    const approvals = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(evidenceReviews)
+      .where(
+        and(
+          eq(evidenceReviews.evidenceId, input.evidenceId),
+          eq(evidenceReviews.decision, "approve"),
+        ),
+      );
 
-  const approvalCount = Number(approvals[0]!.count);
+    const ev = await tx
+      .select({
+        requiredApprovals: evidence.validationRequiredApprovals,
+        status: evidence.status,
+      })
+      .from(evidence)
+      .where(eq(evidence.id, input.evidenceId))
+      .limit(1);
 
-  // Get the evidence record to check required approvals
-  const ev = await db
-    .select({
-      requiredApprovals: evidence.validationRequiredApprovals,
-      status: evidence.status,
-      guildId: evidence.guildId,
-    })
-    .from(evidence)
-    .where(eq(evidence.id, input.evidenceId))
-    .limit(1);
+    if (ev.length === 0) throw new Error("Evidence not found");
 
-  if (ev.length === 0) throw new Error("Evidence not found");
+    const evidenceRecord = ev[0];
+    const quorumReached = Number(approvals[0]?.count ?? 0) >= evidenceRecord.requiredApprovals;
+    if (quorumReached && evidenceRecord.status === "under_review") {
+      await tx
+        .update(evidence)
+        .set({ status: "validated", validatedAt: new Date() })
+        .where(eq(evidence.id, input.evidenceId));
+    }
 
-  const quorumReached = approvalCount >= ev[0]!.requiredApprovals;
+    await tx.insert(auditLog).values({
+      guildId: input.guildId,
+      actorDiscordId: input.reviewerDiscordId,
+      action: "evidence_reviewed",
+      subjectType: "evidence",
+      subjectId: input.evidenceId,
+      sensitivity: "officer_only",
+      payload: {
+        decision: input.decision,
+        quorumReached,
+        idempotencyKey,
+      } as Record<string, unknown>,
+    });
 
-  if (quorumReached && ev[0]!.status === "under_review") {
-    await db
-      .update(evidence)
-      .set({ status: "validated", validatedAt: new Date() })
-      .where(eq(evidence.id, input.evidenceId));
-  }
-
-  return { id: review.id, quorumReached };
+    const result = { id: review.id, quorumReached };
+    await completeIdempotencyKey(idempotencyKey, result, tx);
+    return result;
+  });
 }
 
 export interface CreditScoreInput {
@@ -195,46 +216,40 @@ export interface CreditScoreInput {
   creditedBy: string;
 }
 
-/**
- * Record a score credit event. Idempotent per evidence+agent pair.
- */
 export async function creditScore(
   input: CreditScoreInput,
-  idempotencyKey: string
+  idempotencyKey: string,
 ): Promise<void> {
-  // Idempotency check
-  const existing = await db
-    .select({ id: agentScoreEvents.id })
-    .from(agentScoreEvents)
-    .where(
-      sql`${agentScoreEvents.evidenceId} = ${input.evidenceId} AND ${agentScoreEvents.agentDiscordId} = ${input.agentDiscordId}`
-    )
-    .limit(1);
+  await db.transaction(async (tx) => {
+    const claim = await claimIdempotencyKey({
+      key: idempotencyKey,
+      guildId: input.guildId,
+      scope: "score:credit",
+      actorDiscordId: input.creditedBy,
+    }, tx);
+    if (!claim.acquired) return;
 
-  if (existing.length > 0) return; // Already credited
+    await tx.insert(agentScoreEvents).values({
+      guildId: input.guildId,
+      evidenceId: input.evidenceId,
+      agentDiscordId: input.agentDiscordId,
+      metricCategory: input.metricCategory as typeof agentScoreEvents.$inferInsert.metricCategory,
+      pointSource: "configured_table",
+      pointsApproved: input.pointsApproved,
+      pointsTableVersion: 1,
+      creditedBy: input.creditedBy,
+      status: "credited",
+    });
 
-  await db.insert(agentScoreEvents).values({
-    guildId: input.guildId,
-    evidenceId: input.evidenceId,
-    agentDiscordId: input.agentDiscordId,
-    metricCategory: input.metricCategory as any,
-    pointSource: "configured_table" as any,
-    pointsApproved: input.pointsApproved,
-    pointsTableVersion: 1,
-    creditedBy: input.creditedBy,
-    status: "credited" as any,
+    await tx
+      .update(evidence)
+      .set({ status: "credited", creditedAt: new Date() })
+      .where(eq(evidence.id, input.evidenceId));
+
+    await completeIdempotencyKey(idempotencyKey, { credited: true }, tx);
   });
-
-  // Mark evidence as credited
-  await db
-    .update(evidence)
-    .set({ status: "credited", creditedAt: new Date() })
-    .where(eq(evidence.id, input.evidenceId));
 }
 
-/**
- * Write an audit log entry.
- */
 export async function writeAuditLog(input: {
   guildId: string;
   actorDiscordId?: string;
@@ -251,18 +266,15 @@ export async function writeAuditLog(input: {
     action: input.action,
     subjectType: input.subjectType,
     subjectId: input.subjectId,
-    sensitivity: input.sensitivity ?? "officer_only" as any,
-    payload: (input.payload ?? {}) as Record<string, unknown>,
+    sensitivity: input.sensitivity ?? "officer_only",
+    payload: input.payload ?? {},
     discordMessageId: input.discordMessageId,
   });
 }
 
-/**
- * Find evidence that has gone stale (past staleAfter without notification).
- */
 export async function findStaleEvidence(
   guildId: string,
-  now = new Date()
+  now = new Date(),
 ): Promise<Array<{ id: string; shortId: string | null; title: string; metricCategory: string }>> {
   const rows = await db
     .select({
@@ -273,32 +285,33 @@ export async function findStaleEvidence(
     })
     .from(evidence)
     .where(
-      sql`${evidence.guildId} = ${guildId} AND ${evidence.status} = 'under_review' AND ${evidence.staleAfter} <= ${now} AND ${evidence.staleNotifiedAt} IS NULL`
+      sql`${evidence.guildId} = ${guildId} AND ${evidence.status} = 'under_review' AND ${evidence.staleAfter} <= ${now} AND ${evidence.staleNotifiedAt} IS NULL`,
     );
 
-  return rows as Array<{ id: string; shortId: string | null; title: string; metricCategory: string }>;
+  return rows;
 }
 
-/**
- * Mark evidence as stale and notify.
- */
 export async function markEvidenceStale(evidenceId: string): Promise<void> {
   await db
     .update(evidence)
-    .set({ status: "stale_review" as any, staleNotifiedAt: new Date() })
+    .set({ status: "stale_review", staleNotifiedAt: new Date() })
     .where(eq(evidence.id, evidenceId));
 }
 
-/**
- * Director override: force-validate stale evidence.
- */
 export async function directorOverrideEvidence(
   evidenceId: string,
-  directorDiscordId: string,
-  reason: string
+  _directorDiscordId: string,
+  _reason: string,
 ): Promise<void> {
   await db
     .update(evidence)
-    .set({ status: "validated" as any, validatedAt: new Date() })
+    .set({ status: "validated", validatedAt: new Date() })
     .where(eq(evidence.id, evidenceId));
+}
+
+function getReviewIdempotencyResult(payload: Record<string, unknown> | null): AddReviewResult | null {
+  if (!payload || typeof payload.id !== "string" || typeof payload.quorumReached !== "boolean") {
+    return null;
+  }
+  return { id: payload.id, quorumReached: payload.quorumReached };
 }

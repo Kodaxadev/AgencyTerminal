@@ -1,5 +1,5 @@
 import { Routes, Route, Link, useLocation } from "react-router-dom";
-import type { EvidenceRecord, MetricCategory, EvidenceStatus } from "@agency-terminal/core";
+import type { EvidenceRecord, EvidenceStatus } from "@agency-terminal/core";
 import type { ScoreEvent } from "@agency-terminal/core";
 
 // --- Mock data for Phase 1 ---

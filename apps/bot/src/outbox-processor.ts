@@ -1,17 +1,19 @@
 import {
   ChannelType,
   Client,
-  Guild,
-  PermissionOverwrites,
+  EmbedBuilder,
   PermissionsBitField,
   TextChannel,
-  EmbedBuilder,
 } from "discord.js";
-import { fetchDueOutbox, markOutboxSent, markOutboxFailed, findStaleEvidence, markEvidenceStale } from "@agency-terminal/db";
-
-function denyEveryone() {
-  return { deny: new PermissionsBitField([PermissionsBitField.Flags.ViewChannel]), id: "everyone" as any };
-}
+import {
+  claimDueOutbox,
+  findStaleEvidence,
+  markEvidenceStale,
+  markOutboxFailed,
+  markOutboxSent,
+  persistTicketChannelId,
+} from "@agency-terminal/db";
+import { buildDenyEveryoneOverwrite } from "./safety";
 
 function allowCreator(discordId: string) {
   return {
@@ -24,16 +26,12 @@ function allowCreator(discordId: string) {
   };
 }
 
-/**
- * Process due outbox messages by creating Discord channels for tickets.
- * Called on a timer (e.g. every 10 seconds).
- */
 export async function processOutbox(
   client: Client,
   guildId: string,
-  maxBatch = 20
+  maxBatch = 20,
 ): Promise<{ processed: number; errors: number; staleAlerts: number }> {
-  const messages = await fetchDueOutbox(maxBatch);
+  const messages = await claimDueOutbox(maxBatch);
   let processed = 0;
   let errors = 0;
   let staleAlerts = 0;
@@ -52,7 +50,6 @@ export async function processOutbox(
     }
   }
 
-  // Check for stale evidence and post to ops queue
   try {
     const stale = await findStaleEvidence(guildId);
     for (const ev of stale) {
@@ -61,7 +58,7 @@ export async function processOutbox(
       staleAlerts++;
     }
   } catch {
-    // Stale check failure is non-fatal
+    // Stale check failure is non-fatal to outbox projection processing.
   }
 
   return { processed, errors, staleAlerts };
@@ -80,28 +77,28 @@ async function handleTicketCreatedOutbox(
 ): Promise<void> {
   const guild = await client.guilds.fetch(msg.guildId);
   const p = msg.payload;
-
   const ticketShortId = (p.ticketShortId as string) ?? "unknown";
   const ticketType = (p.ticketType as string) ?? "general";
   const creatorId = p.creatorDiscordId as string;
   const title = (p.title as string) ?? "Ticket";
-
+  const ticketId = p.ticketId as string | undefined;
   const channelName = `${ticketType}-${ticketShortId}`.toLowerCase().replace(/_/g, "-");
-
-  const overwrites = [denyEveryone(), allowCreator(creatorId)];
 
   const channel = await guild.channels.create({
     name: channelName,
     type: ChannelType.GuildText,
-    permissionOverwrites: overwrites,
+    permissionOverwrites: [buildDenyEveryoneOverwrite(guild.roles.everyone.id), allowCreator(creatorId)],
     topic: `${title} | ${ticketShortId}`,
     reason: `Ticket ${ticketShortId} created`,
   });
 
-  // Send welcome message
-  await (channel as TextChannel).send({
-    content: `<@${creatorId}> — Your ticket **${ticketShortId}** has been created.`,
+  await channel.send({
+    content: `<@${creatorId}> - Your ticket **${ticketShortId}** has been created.`,
   });
+
+  if (ticketId) {
+    await persistTicketChannelId(ticketId, channel.id);
+  }
 }
 
 async function postStaleAlert(
@@ -120,13 +117,13 @@ async function postStaleAlert(
   const embed = new EmbedBuilder()
     .setTitle("SIG//AGENCY TERMINAL")
     .setDescription(
-      `STATUS // CODE 408 // REVIEW TIMEOUT\n\n[ STALE — NEEDS RESOLUTION ]\n\nEvidence **${staleId}** has exceeded the 48h review window.\nMetric: \`${ev.metricCategory}\`\nUse \`/director override\` to force-validate or review immediately.`,
+      `STATUS // CODE 408 // REVIEW TIMEOUT\n\n[ STALE - NEEDS RESOLUTION ]\n\nEvidence **${staleId}** has exceeded the 48h review window.\nMetric: \`${ev.metricCategory}\`\nUse \`/director override\` to force-validate or review immediately.`,
     )
     .setColor(0xfbbf24)
     .setTimestamp();
 
   await opsChannel.send({
-    content: `⚠️ Stale evidence alert: <@&everyone>`,
+    content: "Stale evidence alert: @everyone",
     embeds: [embed],
   });
 }

@@ -9,6 +9,7 @@ import {
   integer,
   pgEnum,
   index,
+  uniqueIndex,
   jsonb,
 } from "drizzle-orm/pg-core";
 
@@ -259,7 +260,12 @@ export const discordOutbox = pgTable("discord_outbox", {
   lastError: text("last_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  guildIdempotencyIdx: uniqueIndex("discord_outbox_guild_idempotency_key").on(
+    table.guildId,
+    table.idempotencyKey,
+  ),
+}));
 
 export const idempotencyKeys = pgTable("idempotency_keys", {
   key: text("key").primaryKey(),

@@ -1,5 +1,6 @@
 import { ButtonInteraction } from "discord.js";
 import { calculateScoreCredits } from "@agency-terminal/core";
+import type { MetricCategory } from "@agency-terminal/core";
 import { creditScore, writeAuditLog } from "@agency-terminal/db";
 import { createScoreCreditEmbed } from "@agency-terminal/discord-ui";
 
@@ -15,7 +16,7 @@ export async function processScoreCredits(
   metricCategory: string,
 ): Promise<void> {
   const metricConfig = {
-    category: metricCategory as any,
+    category: metricCategory as MetricCategory,
     basePoints: 10,
     visibility: "public" as const,
     enabled: true,

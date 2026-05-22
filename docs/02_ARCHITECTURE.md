@@ -187,7 +187,7 @@ No generic SaaS names (tenant, customer, subscription, plan, billing, workspace)
 SQL migrations are the canonical source:
 
 ```
-migrations/
+packages/db/migrations/
   001_initial_agency_terminal.sql
   002_retention_and_transcripts.sql
   003_operational_tables.sql
@@ -197,7 +197,7 @@ migrations/
   007_group_credit_appeals_backfill.sql
 ```
 
-Drizzle schema sketch for reference: `schema/drizzle-schema.ts`, `schema/pack04-types.ts`.
+Drizzle schema sketch for reference: `packages/db/schema/drizzle-schema.ts`.
 
 ## Build gates
 

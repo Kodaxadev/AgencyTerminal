@@ -7,7 +7,6 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ComponentType,
 } from "discord.js";
 import type {
   HealthCheckStatus,

@@ -63,7 +63,7 @@ This suite contains the concept docs, architecture, MVP roadmap, Discord UX, Evi
 - `assets/readme/*` — README concept board images
 
 ### Database
-- `migrations/001`–`007` — Complete SQL schema
+- `packages/db/migrations/001`-`007` — Complete SQL schema
 
 ---
 

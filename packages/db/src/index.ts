@@ -17,8 +17,12 @@ export type {
 export {
   enqueueOutbox,
   fetchDueOutbox,
+  claimDueOutbox,
   markOutboxSent,
   markOutboxFailed,
   createTicketChannel,
+  persistTicketChannelId,
 } from "./outbox";
 export type { EnqueueOutboxInput, OutboxEventType, CreateTicketChannelInput } from "./outbox";
+export { getCapabilitiesForRoles } from "./permissions";
+export type { Capability } from "./permissions";

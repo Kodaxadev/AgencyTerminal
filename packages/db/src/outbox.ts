@@ -1,6 +1,6 @@
 import { db } from "./client";
-import { discordOutbox } from "../schema/drizzle-schema";
-import { eq, lte, and, or, inArray } from "drizzle-orm";
+import { discordOutbox, tickets } from "../schema/drizzle-schema";
+import { eq, lte, and, or, sql } from "drizzle-orm";
 
 // ---------- Discord Outbox ----------
 
@@ -22,24 +22,27 @@ export interface EnqueueOutboxInput {
   nextAttemptAt?: Date;
 }
 
+type DbExecutor = Pick<typeof db, "insert" | "select" | "update" | "execute">;
+
 /**
  * Enqueue a message in the Discord outbox for async delivery.
  * Idempotent — returns existing entry if idempotency key matches.
  */
 export async function enqueueOutbox(
-  input: EnqueueOutboxInput
+  input: EnqueueOutboxInput,
+  client: DbExecutor = db,
 ): Promise<{ id: string; alreadyExists: boolean }> {
-  const existing = await db
+  const existing = await client
     .select({ id: discordOutbox.id })
     .from(discordOutbox)
     .where(eq(discordOutbox.idempotencyKey, input.idempotencyKey))
     .limit(1);
 
   if (existing.length > 0) {
-    return { id: existing[0]!.id, alreadyExists: true };
+    return { id: existing[0].id, alreadyExists: true };
   }
 
-  const [row] = await db
+  const [row] = await client
     .insert(discordOutbox)
     .values({
       guildId: input.guildId,
@@ -82,15 +85,57 @@ export async function fetchDueOutbox(limit = 20): Promise<
     .where(
       and(
         or(
-          eq(discordOutbox.status, "pending" as any),
-          eq(discordOutbox.status, "failed" as any)
+          eq(discordOutbox.status, "pending"),
+          eq(discordOutbox.status, "failed")
         ),
         lte(discordOutbox.nextAttemptAt, new Date())
       )
     )
     .limit(limit);
 
-  return rows as Array<{
+  return rows as unknown as Array<{
+    id: string;
+    guildId: string;
+    eventType: string;
+    payload: Record<string, unknown>;
+    attempts: number;
+    maxAttempts: number;
+  }>;
+}
+
+export async function claimDueOutbox(limit = 20): Promise<
+  Array<{
+    id: string;
+    guildId: string;
+    eventType: string;
+    payload: Record<string, unknown>;
+    attempts: number;
+    maxAttempts: number;
+  }>
+> {
+  const rows = await db.execute(sql`
+    with due as (
+      select id
+      from discord_outbox
+      where status in ('pending', 'failed')
+        and next_attempt_at <= now()
+      order by next_attempt_at asc, created_at asc
+      limit ${limit}
+      for update skip locked
+    )
+    update discord_outbox
+    set status = 'processing',
+        updated_at = now()
+    where id in (select id from due)
+    returning id,
+      guild_id as "guildId",
+      event_type as "eventType",
+      payload,
+      attempts,
+      max_attempts as "maxAttempts"
+  `);
+
+  return rows as unknown as Array<{
     id: string;
     guildId: string;
     eventType: string;
@@ -106,8 +151,18 @@ export async function fetchDueOutbox(limit = 20): Promise<
 export async function markOutboxSent(id: string): Promise<void> {
   await db
     .update(discordOutbox)
-    .set({ status: "sent" as any, updatedAt: new Date() })
+    .set({ status: "sent", updatedAt: new Date() })
     .where(eq(discordOutbox.id, id));
+}
+
+export async function persistTicketChannelId(
+  ticketId: string,
+  channelId: string,
+): Promise<void> {
+  await db
+    .update(tickets)
+    .set({ channelId, updatedAt: new Date() })
+    .where(eq(tickets.id, ticketId));
 }
 
 /**
@@ -125,14 +180,17 @@ export async function markOutboxFailed(
 
   if (row.length === 0) return;
 
-  const { attempts, maxAttempts } = row[0]!;
+  const failedRow = row[0];
+  if (!failedRow) return;
+
+  const { attempts, maxAttempts } = failedRow;
   const nextAttempts = attempts + 1;
 
   if (nextAttempts >= maxAttempts) {
     await db
       .update(discordOutbox)
       .set({
-        status: "dead" as any,
+        status: "dead",
         lastError: error,
         attempts: nextAttempts,
         updatedAt: new Date(),
@@ -146,7 +204,7 @@ export async function markOutboxFailed(
     await db
       .update(discordOutbox)
       .set({
-        status: "failed" as any,
+        status: "failed",
         lastError: error,
         attempts: nextAttempts,
         nextAttemptAt,
