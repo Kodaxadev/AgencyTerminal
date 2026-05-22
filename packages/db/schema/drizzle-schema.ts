@@ -7,13 +7,12 @@ import {
   uuid,
   timestamp,
   integer,
+  boolean,
   pgEnum,
   index,
   uniqueIndex,
   jsonb,
 } from "drizzle-orm/pg-core";
-
-// ---------- Enums ----------
 
 export const ticketType = pgEnum("ticket_type", [
   "enlistment",
@@ -128,10 +127,19 @@ export const capabilityEnum = pgEnum("capability", [
   "can_manage_contracts",
   "can_manage_intel",
   "can_manage_config",
+  "can_manage_enlistment",
+  "can_view_audit",
+  "can_view_sensitive_contracts",
+  "can_view_sensitive_intel",
+  "can_backfill_evidence",
+  "can_review_appeals",
 ]);
-
-// ---------- Guild configuration ----------
-
+export const submittedModeEnum = pgEnum("submitted_mode", [
+  "live_bot",
+  "manual_backfill",
+  "imported",
+]);
+export const evidenceQualityTier = pgEnum("evidence_quality_tier", ["A", "B", "C", "D", "F"]);
 export const guildConfig = pgTable("guild_config", {
   guildId: text("guild_id").primaryKey(),
   name: text("name").notNull().default("Agency Terminal"),
@@ -163,8 +171,6 @@ export const metricConfig = pgTable("metric_config", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
-// ---------- Ticket system ----------
 
 export const tickets = pgTable("tickets", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -214,8 +220,6 @@ export const ticketEvents = pgTable("ticket_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ---------- Workflow state machines ----------
-
 export const workflowInstances = pgTable("workflow_instances", {
   id: uuid("id").primaryKey().defaultRandom(),
   ticketId: uuid("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
@@ -236,8 +240,6 @@ export const workflowEvents = pgTable("workflow_events", {
   payload: jsonb("payload").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
-// ---------- Operational tables (migration 003) ----------
 
 export const outboxStatus = pgEnum("outbox_status", [
   "pending",
@@ -305,8 +307,6 @@ export const workerHeartbeats = pgTable("worker_heartbeats", {
   metadata: jsonb("metadata").notNull().default({}),
 });
 
-// ---------- Evidence ledger ----------
-
 export const evidence = pgTable("evidence", {
   id: uuid("id").primaryKey().defaultRandom(),
   guildId: text("guild_id").notNull().references(() => guildConfig.guildId, { onDelete: "cascade" }),
@@ -320,6 +320,11 @@ export const evidence = pgTable("evidence", {
   title: text("title").notNull(),
   description: text("description").notNull().default(""),
   validationRequiredApprovals: integer("validation_required_approvals").notNull().default(2),
+  eventOccurredAt: timestamp("event_occurred_at", { withTimezone: true }),
+  submittedMode: submittedModeEnum("submitted_mode").notNull().default("live_bot"),
+  backfillReason: text("backfill_reason"),
+  backfilledBy: text("backfilled_by"),
+  qualityTier: evidenceQualityTier("quality_tier"),
   staleAfter: timestamp("stale_after", { withTimezone: true }),
   staleNotifiedAt: timestamp("stale_notified_at", { withTimezone: true }),
   validatedAt: timestamp("validated_at", { withTimezone: true }),
@@ -345,13 +350,10 @@ export const evidenceReviews = pgTable("evidence_reviews", {
   reviewerDiscordId: text("reviewer_discord_id").notNull(),
   decision: reviewDecision("decision").notNull(),
   rationale: text("rationale").notNull().default(""),
-  conflictDisclosed: text("conflict_disclosed").notNull().default("false"),
+  conflictDisclosed: boolean("conflict_disclosed").notNull().default(false),
   conflictReason: text("conflict_reason"),
-  qualityTier: text("quality_tier"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
-// ---------- Score events and reversals ----------
 
 export const agentScoreEvents = pgTable("agent_score_events", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -380,8 +382,6 @@ export const scoreReversals = pgTable("score_reversals", {
   auditMessageId: text("audit_message_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
-// ---------- Audit log ----------
 
 export const auditLog = pgTable("audit_log", {
   id: uuid("id").primaryKey().defaultRandom(),

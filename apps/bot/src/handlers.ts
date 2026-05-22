@@ -24,10 +24,15 @@ import {
   directorOverrideEvidence,
   getCapabilitiesForRoles,
   submitEvidence,
-  writeAuditLog,
 } from "@agency-terminal/db";
 import type { TicketType } from "@agency-terminal/db";
-import { canHandleReview, getDbUnavailableReply, getEvidenceLinkReply } from "./safety";
+import {
+  canHandleOverride,
+  canHandleReview,
+  getDbUnavailableReply,
+  getEvidenceLinkReply,
+  getQuorumReachedReply,
+} from "./safety";
 
 export async function handleInteraction(interaction: Interaction): Promise<void> {
   if (interaction.isChatInputCommand()) {
@@ -196,16 +201,12 @@ async function handleDirectorOverride(interaction: ChatInputCommandInteraction):
   const directorDiscordId = interaction.user.id;
 
   try {
-    await directorOverrideEvidence(evidenceId, directorDiscordId, reason);
-    await writeAuditLog({
-      guildId,
-      actorDiscordId: directorDiscordId,
-      action: "director_override",
-      subjectType: "evidence",
-      subjectId: evidenceId,
-      sensitivity: "director_only",
-      payload: { reason },
-    });
+    if (!await userCanOverride(interaction)) {
+      await interaction.editReply("You are not authorized to override evidence quorum.");
+      return;
+    }
+
+    await directorOverrideEvidence(evidenceId, directorDiscordId, reason, guildId);
 
     const staleEmbed = createStaleEmbed(
       `Evidence **${evidenceId}** has been force-validated by <@${directorDiscordId}>.\nReason: ${reason}`,
@@ -216,6 +217,10 @@ async function handleDirectorOverride(interaction: ChatInputCommandInteraction):
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    if (isDbError(message)) {
+      await interaction.editReply(getDbUnavailableReply("override"));
+      return;
+    }
     await interaction.editReply(`Override failed: ${message}`);
   }
 }
@@ -262,7 +267,7 @@ async function handleReviewModal(interaction: ModalSubmitInteraction): Promise<v
     await interaction.editReply({ embeds: [createReviewResultEmbed(review, evidenceId)] });
     if (reviewResult.quorumReached) {
       await interaction.followUp({
-        content: `**Quorum reached for ${evidenceId}!** Score credit processing...`,
+        content: getQuorumReachedReply(evidenceId),
         ephemeral: false,
       });
     }
@@ -282,6 +287,12 @@ async function userCanReview(
   if (!interaction.guildId) return false;
   const capabilities = await getCapabilitiesForRoles(interaction.guildId, getMemberRoleIds(interaction.member));
   return canHandleReview(capabilities);
+}
+
+async function userCanOverride(interaction: ChatInputCommandInteraction): Promise<boolean> {
+  if (!interaction.guildId) return false;
+  const capabilities = await getCapabilitiesForRoles(interaction.guildId, getMemberRoleIds(interaction.member));
+  return canHandleOverride(capabilities);
 }
 
 function getMemberRoleIds(member: ButtonInteraction["member"]): string[] {

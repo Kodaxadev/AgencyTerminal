@@ -13,7 +13,11 @@ import {
   markOutboxSent,
   persistTicketChannelId,
 } from "@agency-terminal/db";
-import { buildDenyEveryoneOverwrite } from "./safety";
+import {
+  buildDenyEveryoneOverwrite,
+  getStaleAlertContent,
+  shouldMarkStaleAlertNotified,
+} from "./safety";
 
 function allowCreator(discordId: string) {
   return {
@@ -53,9 +57,11 @@ export async function processOutbox(
   try {
     const stale = await findStaleEvidence(guildId);
     for (const ev of stale) {
-      await markEvidenceStale(ev.id);
-      await postStaleAlert(client, guildId, ev);
-      staleAlerts++;
+      const status = await postStaleAlert(client, guildId, ev);
+      if (shouldMarkStaleAlertNotified(status)) {
+        await markEvidenceStale(ev.id);
+        staleAlerts++;
+      }
     }
   } catch {
     // Stale check failure is non-fatal to outbox projection processing.
@@ -105,13 +111,13 @@ async function postStaleAlert(
   client: Client,
   guildId: string,
   ev: { id: string; shortId: string | null; title: string; metricCategory: string },
-): Promise<void> {
+): Promise<"sent" | "missing_ops_channel" | "send_failed"> {
   const guild = await client.guilds.fetch(guildId);
   const opsChannel = guild.channels.cache.find(
     (ch) => ch.name === "ops-queue" && ch.type === ChannelType.GuildText,
   ) as TextChannel | undefined;
 
-  if (!opsChannel) return;
+  if (!opsChannel) return "missing_ops_channel";
 
   const staleId = ev.shortId ?? ev.id;
   const embed = new EmbedBuilder()
@@ -122,8 +128,13 @@ async function postStaleAlert(
     .setColor(0xfbbf24)
     .setTimestamp();
 
-  await opsChannel.send({
-    content: "Stale evidence alert: @everyone",
-    embeds: [embed],
-  });
+  try {
+    await opsChannel.send({
+      content: getStaleAlertContent(),
+      embeds: [embed],
+    });
+    return "sent";
+  } catch {
+    return "send_failed";
+  }
 }

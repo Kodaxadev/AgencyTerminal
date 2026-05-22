@@ -23,6 +23,9 @@ export interface SubmitEvidenceInput {
   linkUrl?: string;
   linkSourceType?: string;
   eventOccurredAt?: Date;
+  submittedMode?: "live_bot" | "manual_backfill" | "imported";
+  backfillReason?: string;
+  backfilledBy?: string;
 }
 
 export interface SubmitEvidenceResult {
@@ -61,6 +64,10 @@ export async function submitEvidence(
         title: input.title,
         description: input.description ?? "",
         validationRequiredApprovals: 2,
+        eventOccurredAt: input.eventOccurredAt,
+        submittedMode: input.submittedMode ?? "live_bot",
+        backfillReason: input.backfillReason,
+        backfilledBy: input.backfilledBy,
       })
       .returning({ id: evidence.id, shortId: evidence.shortId });
 
@@ -149,9 +156,8 @@ export async function addReview(
         reviewerDiscordId: input.reviewerDiscordId,
         decision: input.decision,
         rationale: input.rationale,
-        conflictDisclosed: input.conflictDisclosed ? "true" : "false",
+        conflictDisclosed: input.conflictDisclosed ?? false,
         conflictReason: input.conflictReason,
-        qualityTier: input.qualityTier,
       })
       .returning({ id: evidenceReviews.id });
 
@@ -183,7 +189,11 @@ export async function addReview(
     if (quorumReached && evidenceRecord.status === "under_review") {
       await tx
         .update(evidence)
-        .set({ status: "validated", validatedAt: new Date() })
+        .set({
+          status: "validated",
+          validatedAt: new Date(),
+          qualityTier: input.qualityTier,
+        })
         .where(eq(evidence.id, input.evidenceId));
     }
 
@@ -300,13 +310,26 @@ export async function markEvidenceStale(evidenceId: string): Promise<void> {
 
 export async function directorOverrideEvidence(
   evidenceId: string,
-  _directorDiscordId: string,
-  _reason: string,
+  directorDiscordId: string,
+  reason: string,
+  guildId: string,
 ): Promise<void> {
-  await db
-    .update(evidence)
-    .set({ status: "validated", validatedAt: new Date() })
-    .where(eq(evidence.id, evidenceId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(evidence)
+      .set({ status: "validated", validatedAt: new Date() })
+      .where(eq(evidence.id, evidenceId));
+
+    await tx.insert(auditLog).values({
+      guildId,
+      actorDiscordId: directorDiscordId,
+      action: "director_override",
+      subjectType: "evidence",
+      subjectId: evidenceId,
+      sensitivity: "director_only",
+      payload: { reason } as Record<string, unknown>,
+    });
+  });
 }
 
 function getReviewIdempotencyResult(payload: Record<string, unknown> | null): AddReviewResult | null {

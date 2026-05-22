@@ -3,7 +3,9 @@ import {
   getEvidenceEventTicketId,
   getEvidenceIdempotencyResult,
   shouldPersistTicketChannelId,
+  validateMigration007SchemaShape,
 } from "../integrity";
+import { evidence, evidenceReviews, capabilityEnum } from "../../schema/drizzle-schema";
 
 describe("DB integrity helpers", () => {
   it("does not use standalone evidence ids as ticket event foreign keys", () => {
@@ -31,5 +33,13 @@ describe("DB integrity helpers", () => {
     expect(shouldPersistTicketChannelId("123456789012345678")).toBe(true);
     expect(shouldPersistTicketChannelId("pending:TKT-0001")).toBe(false);
     expect(shouldPersistTicketChannelId("")).toBe(false);
+  });
+
+  it("keeps Drizzle aligned with migration 007 evidence and review fields", () => {
+    expect(validateMigration007SchemaShape({
+      evidenceColumns: Object.keys(evidence),
+      reviewColumns: Object.keys(evidenceReviews),
+      capabilities: capabilityEnum.enumValues,
+    })).toEqual([]);
   });
 });

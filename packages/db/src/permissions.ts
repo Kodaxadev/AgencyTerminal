@@ -10,7 +10,13 @@ export type Capability =
   | "can_manage_clearance"
   | "can_manage_contracts"
   | "can_manage_intel"
-  | "can_manage_config";
+  | "can_manage_config"
+  | "can_manage_enlistment"
+  | "can_view_audit"
+  | "can_view_sensitive_contracts"
+  | "can_view_sensitive_intel"
+  | "can_backfill_evidence"
+  | "can_review_appeals";
 
 export async function getCapabilitiesForRoles(
   guildId: string,

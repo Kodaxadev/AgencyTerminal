@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   assertPrivateChannelConfig,
   buildDenyEveryoneOverwrite,
+  canHandleOverride,
   canHandleReview,
   getDbUnavailableReply,
   getEvidenceLinkReply,
+  getQuorumReachedReply,
+  getStaleAlertContent,
+  shouldMarkStaleAlertNotified,
 } from "../safety";
 
 describe("bot safety helpers", () => {
@@ -23,6 +27,29 @@ describe("bot safety helpers", () => {
   it("blocks review actions without mapped evidence validation capability", () => {
     expect(canHandleReview(["can_manage_contracts"])).toBe(false);
     expect(canHandleReview(["can_validate_evidence"])).toBe(true);
+  });
+
+  it("blocks director override actions without mapped quorum override capability", () => {
+    expect(canHandleOverride(["can_validate_evidence"])).toBe(false);
+    expect(canHandleOverride(["can_override_quorum"])).toBe(true);
+  });
+
+  it("uses truthful quorum copy without claiming score processing started", () => {
+    const reply = getQuorumReachedReply("EVD-0001");
+
+    expect(reply).toContain("validated");
+    expect(reply).toContain("pending");
+    expect(reply).not.toMatch(/Score credit processing/i);
+  });
+
+  it("does not mass-mention stale operational alerts", () => {
+    expect(getStaleAlertContent()).not.toContain("@everyone");
+  });
+
+  it("marks stale alert notification complete only after a successful post", () => {
+    expect(shouldMarkStaleAlertNotified("sent")).toBe(true);
+    expect(shouldMarkStaleAlertNotified("missing_ops_channel")).toBe(false);
+    expect(shouldMarkStaleAlertNotified("send_failed")).toBe(false);
   });
 
   it("uses the guild everyone role id for private channel denial", () => {
