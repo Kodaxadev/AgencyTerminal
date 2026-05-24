@@ -36,3 +36,22 @@ export async function getCapabilitiesForRoles(
 
   return Array.from(new Set(rows.map((row) => row.capability as Capability)));
 }
+
+export async function getRoleIdsForCapabilities(
+  guildId: string,
+  capabilities: Capability[],
+): Promise<string[]> {
+  if (capabilities.length === 0) return [];
+
+  const rows = await db
+    .select({ discordRoleId: roleMappings.discordRoleId })
+    .from(roleMappings)
+    .where(
+      and(
+        eq(roleMappings.guildId, guildId),
+        inArray(roleMappings.capability, capabilities),
+      ),
+    );
+
+  return Array.from(new Set(rows.map((row) => row.discordRoleId)));
+}

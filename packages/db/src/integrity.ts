@@ -1,6 +1,7 @@
 export interface EvidenceIdempotencyResult {
   id: string;
   shortId: string | null;
+  validationRequiredApprovals: number;
 }
 
 export function getEvidenceEventTicketId(
@@ -14,10 +15,12 @@ export function getEvidenceIdempotencyResult(
   payload: Record<string, unknown>,
 ): EvidenceIdempotencyResult | null {
   if (typeof payload.evidenceId !== "string") return null;
+  if (typeof payload.validationRequiredApprovals !== "number") return null;
 
   return {
     id: payload.evidenceId,
     shortId: typeof payload.evidenceShortId === "string" ? payload.evidenceShortId : null,
+    validationRequiredApprovals: payload.validationRequiredApprovals,
   };
 }
 

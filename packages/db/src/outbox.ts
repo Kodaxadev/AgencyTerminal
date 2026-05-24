@@ -11,7 +11,8 @@ export type OutboxEventType =
   | "score_credited"
   | "score_reversed"
   | "stale_alert"
-  | "audit_log";
+  | "audit_log"
+  | "evidence_review_projection";
 
 export interface EnqueueOutboxInput {
   guildId: string;

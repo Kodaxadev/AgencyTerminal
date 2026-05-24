@@ -159,7 +159,7 @@ Default validation policy:
 
 ```text
 Evidence submitted -> UNDER_REVIEW -> 48h without quorum: STALE_REVIEW
--> post to #ops-queue
+-> post to configured private ops queue channel
 -> Handler/Director may unblock with director_override
 -> audit log required
 ```
@@ -267,6 +267,6 @@ Review records support `conflict_disclosed` boolean and `conflict_reason` text.
 
 Conflict examples: same fleet, same contract team, close ally, same dispute, direct beneficiary.
 
-v1 does not automatically block conflicted reviews — it records the disclosure. For high-value or sensitive evidence, at least one non-conflicted reviewer should approve.
+v1 rejects quorum-changing approvals from the submitter, credit subject, or a reviewer who discloses a conflict. Non-approval review decisions may still record context without validating evidence.
 
 Assignment recommendation sorts by: has required capability → fewest pending assigned reviews → fewest reviews in last 7 days → not already reviewer on this evidence → not marked conflict_disclosed.
