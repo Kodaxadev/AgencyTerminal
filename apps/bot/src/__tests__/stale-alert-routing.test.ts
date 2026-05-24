@@ -5,6 +5,7 @@ import { processOutbox } from "../outbox-processor";
 const dbMocks = vi.hoisted(() => ({
   claimDueOutbox: vi.fn(),
   findStaleEvidence: vi.fn(),
+  getRoleIdsForCapabilities: vi.fn(),
   markEvidenceStale: vi.fn(),
   markOutboxFailed: vi.fn(),
   markOutboxSent: vi.fn(),
@@ -21,6 +22,7 @@ describe("stale-alert private channel routing", () => {
     vi.clearAllMocks();
     dbMocks.claimDueOutbox.mockResolvedValue([]);
     dbMocks.findStaleEvidence.mockResolvedValue([]);
+    dbMocks.getRoleIdsForCapabilities.mockResolvedValue(["reviewer-role-1"]);
     process.env = { ...originalEnv, AGENCY_OPS_QUEUE_CHANNEL_ID: "ops-channel-1" };
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -36,43 +38,62 @@ describe("stale-alert private channel routing", () => {
     expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
   });
 
-  it("missing AGENCY_OPS_QUEUE_CHANNEL_ID does not send and does not mark stale", async () => {
+  it("missing AGENCY_OPS_QUEUE_CHANNEL_ID creates a private ops queue and posts", async () => {
     process.env = { ...originalEnv };
     dbMocks.findStaleEvidence.mockResolvedValue([staleEv()]);
-    const client = makeClientForStale(null);
+    const createdChannel = makePrivateOpsChannel({ id: "created-ops" });
+    const create = vi.fn().mockResolvedValue(createdChannel);
+    const client = makeClientForStale(null, create);
 
     await processOutbox(client, "guild-1", 1);
 
-    expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"missing_channel_id"'));
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"stale_alert_routing_failed"'));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      name: "ops-queue",
+    }));
+    expect(createdChannel.send).toHaveBeenCalledOnce();
+    expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
   });
 
-  it("configured channel not found does not send and does not mark stale", async () => {
+  it("configured channel not found falls back to private ops queue setup", async () => {
     dbMocks.findStaleEvidence.mockResolvedValue([staleEv()]);
-    const client = makeClientForStale(null);
+    const createdChannel = makePrivateOpsChannel({ id: "created-ops" });
+    const create = vi.fn().mockResolvedValue(createdChannel);
+    const client = makeClientForStale(null, create);
 
     await processOutbox(client, "guild-1", 1);
 
-    expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"channel_not_found"'));
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"stale_alert_routing_failed"'));
+    expect(create).toHaveBeenCalledOnce();
+    expect(createdChannel.send).toHaveBeenCalledOnce();
+    expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
   });
 
-  it("configured channel viewable by @everyone does not send and does not mark stale", async () => {
+  it("configured channel viewable by @everyone is not used and private setup is used", async () => {
     dbMocks.findStaleEvidence.mockResolvedValue([staleEv()]);
     const publicChannel = makePrivateOpsChannel({
       id: "ops-channel-1",
       permissionOverwrites: { resolve: vi.fn().mockReturnValue(null) },
     });
-    const client = makeClientForStale(publicChannel);
+    const createdChannel = makePrivateOpsChannel({ id: "created-ops" });
+    const create = vi.fn().mockResolvedValue(createdChannel);
+    const client = makeClientForStale(publicChannel, create);
 
     await processOutbox(client, "guild-1", 1);
 
     expect(publicChannel.send).not.toHaveBeenCalled();
+    expect(createdChannel.send).toHaveBeenCalledOnce();
+    expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
+  });
+
+  it("ops queue setup failure does not send and does not mark stale", async () => {
+    process.env = { ...originalEnv };
+    dbMocks.findStaleEvidence.mockResolvedValue([staleEv()]);
+    const create = vi.fn().mockRejectedValue(new Error("Missing Access"));
+    const client = makeClientForStale(null, create);
+
+    await processOutbox(client, "guild-1", 1);
+
     expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"public_channel"'));
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"stale_alert_routing_failed"'));
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"ops_queue_setup_failed"'));
   });
 
   it("Discord send failure logs stale_alert_send_failed, does not mark stale", async () => {
@@ -129,22 +150,33 @@ function staleEv() {
 
 function makePrivateOpsChannel(overrides: Record<string, unknown> = {}) {
   const denyHas = vi.fn().mockReturnValue(true);
+  const permissionsFor = vi.fn().mockReturnValue({ has: vi.fn().mockReturnValue(true) });
+  const edit = vi.fn().mockResolvedValue({});
   return {
     id: "ops-channel-1",
     type: ChannelType.GuildText,
     name: "ops-queue",
+    guild: { roles: { everyone: { id: "guild-everyone" } } },
     send: vi.fn().mockResolvedValue({}),
     messages: { fetch: vi.fn().mockResolvedValue(new Map()) },
-    permissionOverwrites: { resolve: vi.fn().mockReturnValue({ deny: { has: denyHas } }) },
+    permissionsFor,
+    permissionOverwrites: {
+      edit,
+      resolve: vi.fn().mockReturnValue({ deny: { has: denyHas } }),
+    },
     ...overrides,
   } as unknown as Record<string, unknown>;
 }
 
-function makeClientForStale(opsChannel: Record<string, unknown> | null) {
+function makeClientForStale(
+  opsChannel: Record<string, unknown> | null,
+  create = vi.fn(),
+) {
   const channelMap = opsChannel
     ? new Map([[opsChannel.id as string, opsChannel]])
     : new Map<string, unknown>();
   return {
+    user: { id: "bot-user-1" },
     guilds: {
       fetch: vi.fn().mockResolvedValue({
         roles: { everyone: { id: "guild-everyone" } },
@@ -153,7 +185,7 @@ function makeClientForStale(opsChannel: Record<string, unknown> | null) {
             if (id) return Promise.resolve(channelMap.get(id) ?? null);
             return Promise.resolve(channelMap);
           }),
-          create: vi.fn(),
+          create,
         },
       }),
     },

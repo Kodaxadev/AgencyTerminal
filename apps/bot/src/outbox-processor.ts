@@ -27,6 +27,7 @@ import {
   createReviewButtons,
 } from "@agency-terminal/discord-ui";
 import type { EvidenceRecord, MetricCategory, Sensitivity } from "@agency-terminal/core";
+import { resolveOpsQueueChannel } from "./ops-queue";
 
 function allowCreator(discordId: string) {
   return {
@@ -167,32 +168,14 @@ async function postStaleAlert(
   guildId: string,
   ev: { id: string; shortId: string | null; title: string; metricCategory: string },
 ): Promise<"sent" | "missing_ops_channel" | "send_failed"> {
-  const opsQueueChannelId = process.env.AGENCY_OPS_QUEUE_CHANNEL_ID;
-  if (!opsQueueChannelId) {
-    logStaleFailure("stale_alert_routing_failed", guildId, ev.id, "missing_channel_id");
+  let opsChannel: TextChannel;
+  try {
+    opsChannel = await resolveOpsQueueChannel(client, guildId);
+  } catch (err) {
+    logStaleFailure("stale_alert_routing_failed", guildId, ev.id, "ops_queue_setup_failed", err);
     return "missing_ops_channel";
   }
 
-  const guild = await client.guilds.fetch(guildId);
-  const channel = await guild.channels.fetch(opsQueueChannelId).catch(() => null);
-
-  if (!channel) {
-    logStaleFailure("stale_alert_routing_failed", guildId, ev.id, "channel_not_found");
-    return "missing_ops_channel";
-  }
-
-  if (channel.type !== ChannelType.GuildText) {
-    logStaleFailure("stale_alert_routing_failed", guildId, ev.id, "wrong_channel_type");
-    return "missing_ops_channel";
-  }
-
-  const everyoneOverwrite = channel.permissionOverwrites.resolve(guild.roles.everyone.id);
-  if (!everyoneOverwrite || !everyoneOverwrite.deny?.has(PermissionsBitField.Flags.ViewChannel)) {
-    logStaleFailure("stale_alert_routing_failed", guildId, ev.id, "public_channel");
-    return "missing_ops_channel";
-  }
-
-  const opsChannel = channel;
   if (await staleAlertAlreadyPosted(opsChannel, ev.id)) return "sent";
 
   const staleId = ev.shortId ?? ev.id;
@@ -302,30 +285,11 @@ async function handleEvidenceReviewProjectionOutbox(
     maxAttempts: number;
   },
 ): Promise<void> {
-  const opsQueueChannelId = process.env.AGENCY_OPS_QUEUE_CHANNEL_ID;
-  if (!opsQueueChannelId) {
-    throw new Error("AGENCY_OPS_QUEUE_CHANNEL_ID not configured");
-  }
-
   const evidenceRecord = validateReviewProjectionPayload(msg.payload);
   // Safe: validate already confirmed msg.payload.evidenceId is a non-empty string
   const canonicalEvidenceId = msg.payload.evidenceId as string;
   const displayId = evidenceRecord.id;
-
-  const guild = await client.guilds.fetch(msg.guildId);
-  const channel = await guild.channels.fetch(opsQueueChannelId);
-
-  if (!channel) {
-    throw new Error(`Configured ops-queue channel ${opsQueueChannelId} not found`);
-  }
-  if (channel.type !== ChannelType.GuildText) {
-    throw new Error(`Configured ops-queue channel ${opsQueueChannelId} is not a guild text channel`);
-  }
-
-  const everyoneOverwrite = channel.permissionOverwrites.resolve(guild.roles.everyone.id);
-  if (!everyoneOverwrite || !everyoneOverwrite.deny?.has(PermissionsBitField.Flags.ViewChannel)) {
-    throw new Error(`Configured ops-queue channel ${opsQueueChannelId} is viewable by @everyone`);
-  }
+  const channel = await resolveOpsQueueChannel(client, msg.guildId);
 
   if (await hasExistingReviewMarker(channel, canonicalEvidenceId)) {
     return;

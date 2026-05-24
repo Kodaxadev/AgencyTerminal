@@ -23,7 +23,7 @@ SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 AGENCY_ADMIN_CHANNEL_ID=
 AGENCY_AUDIT_CHANNEL_ID=
-AGENCY_OPS_QUEUE_CHANNEL_ID=
+AGENCY_OPS_QUEUE_CHANNEL_ID= # optional preferred private queue; bot can create private ops-queue
 NODE_ENV=production
 ```
 
@@ -36,7 +36,8 @@ On boot, the bot should verify:
 - Target guild is reachable.
 - Database connection succeeds.
 - Required tables exist.
-- Configured queue/audit channels exist.
+- Configured audit channels exist.
+- Private ops queue exists or can be created with bot and mapped reviewer-role access.
 - Slash commands are registered.
 
 ## Background escalation loop

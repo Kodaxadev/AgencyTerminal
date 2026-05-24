@@ -24,5 +24,5 @@ export {
   persistTicketChannelId,
 } from "./outbox";
 export type { EnqueueOutboxInput, OutboxEventType, CreateTicketChannelInput } from "./outbox";
-export { getCapabilitiesForRoles } from "./permissions";
+export { getCapabilitiesForRoles, getRoleIdsForCapabilities } from "./permissions";
 export type { Capability } from "./permissions";
