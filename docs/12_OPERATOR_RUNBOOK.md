@@ -8,7 +8,8 @@
 - Run migrations (001 through 007).
 - Register guild commands.
 - Configure role mappings.
-- Configure queue channels.
+- Configure a private ops queue channel and set `AGENCY_OPS_QUEUE_CHANNEL_ID`.
+- Keep `AGENCY_ALLOW_OPS_QUEUE_SETUP=false` for shadow and production.
 - Configure audit channel.
 - Configure metric point table.
 - Configure retention policies.
@@ -104,6 +105,7 @@ Controls page `/controls/health` checks:
 - SUPABASE storage configured
 - Bot can read guild
 - Bot can post to audit channel and ops queue
+- Ops queue denies `@everyone` and allows the bot plus mapped reviewer/override roles
 - Required DB migrations applied
 - Background worker heartbeat fresh
 - Outbox: 0 pending / 0 dead

@@ -286,95 +286,33 @@ describe("evidence_review_projection outbox worker", () => {
     expect(opsChannel.send).toHaveBeenCalledOnce();
   });
 
-  it("missing configured channel creates a private ops queue instead of stalling", async () => {
+  it("missing configured channel fails closed without posting evidence content", async () => {
     dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
-    const createdChannel = makePrivateOpsChannel({ id: "created-ops" });
-    const create = vi.fn().mockResolvedValue(createdChannel);
+    process.env = { ...originalEnv };
+    const create = vi.fn();
     const client = makeClient({ cachedChannels: [], fetchedChannels: [], create });
 
     await processOutbox(client, "guild-1", 1);
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      name: "ops-queue",
-    }));
-    expect(createdChannel.send).toHaveBeenCalledOnce();
-    expect(dbMocks.markOutboxSent).toHaveBeenCalledWith("outbox-ev-1");
+    expect(create).not.toHaveBeenCalled();
+    expect(dbMocks.markOutboxFailed).toHaveBeenCalledWith("outbox-ev-1", expect.stringMatching(/AGENCY_OPS_QUEUE_CHANNEL_ID/i));
+    expect(dbMocks.markOutboxSent).not.toHaveBeenCalled();
   });
 
-  it("configured channel viewable by @everyone is bypassed for private setup", async () => {
+  it("configured channel viewable by @everyone fails closed without alternate creation", async () => {
     dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
     const resolve = vi.fn().mockReturnValue(null);
     const opsChannel = makePrivateOpsChannel({
       permissionOverwrites: { resolve },
     });
-    const createdChannel = makePrivateOpsChannel({ id: "created-ops" });
-    const create = vi.fn().mockResolvedValue(createdChannel);
+    const create = vi.fn();
     const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create });
 
     await processOutbox(client, "guild-1", 1);
 
     expect(opsChannel.send).not.toHaveBeenCalled();
-    expect(createdChannel.send).toHaveBeenCalledOnce();
-    expect(dbMocks.markOutboxSent).toHaveBeenCalledWith("outbox-ev-1");
-  });
-
-  it("private ops queue with missing bot access is repaired before sending", async () => {
-    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
-    const permissionsFor = vi.fn().mockReturnValueOnce({ has: vi.fn().mockReturnValue(false) }).mockReturnValue({ has: vi.fn().mockReturnValue(true) });
-    const edit = vi.fn().mockResolvedValue({});
-    const opsChannel = makePrivateOpsChannel({
-      permissionsFor,
-      permissionOverwrites: {
-        edit,
-        resolve: vi.fn().mockReturnValue({ deny: { has: vi.fn().mockReturnValue(true) } }),
-      },
-    });
-    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
-
-    await processOutbox(client, "guild-1", 1);
-
-    expect(edit).toHaveBeenCalledWith("bot-user-1", expect.objectContaining({
-      ViewChannel: true,
-      SendMessages: true,
-      ReadMessageHistory: true,
-    }), expect.any(Object));
-    expect(opsChannel.send).toHaveBeenCalledOnce();
-    expect(dbMocks.markOutboxSent).toHaveBeenCalledWith("outbox-ev-1");
-  });
-
-  it("private ops queue repair failure creates a replacement queue", async () => {
-    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
-    const permissionsFor = vi.fn().mockReturnValue({ has: vi.fn().mockReturnValue(false) });
-    const brokenChannel = makePrivateOpsChannel({
-      permissionsFor,
-      permissionOverwrites: {
-        edit: vi.fn().mockRejectedValue(new Error("Missing Access")),
-        resolve: vi.fn().mockReturnValue({ deny: { has: vi.fn().mockReturnValue(true) } }),
-      },
-    });
-    const createdChannel = makePrivateOpsChannel({ id: "created-ops" });
-    const create = vi.fn().mockResolvedValue(createdChannel);
-    const client = makeClient({ cachedChannels: [], fetchedChannels: [brokenChannel], create });
-
-    await processOutbox(client, "guild-1", 1);
-
-    expect(brokenChannel.send).not.toHaveBeenCalled();
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      name: "ops-queue",
-    }));
-    expect(createdChannel.send).toHaveBeenCalledOnce();
-    expect(dbMocks.markOutboxSent).toHaveBeenCalledWith("outbox-ev-1");
-  });
-
-  it("ops queue setup failure marks outbox failed without sending", async () => {
-    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
-    process.env = { ...originalEnv };
-    const create = vi.fn().mockRejectedValue(new Error("Missing Access"));
-    const client = makeClient({ cachedChannels: [], fetchedChannels: [], create });
-
-    await processOutbox(client, "guild-1", 1);
-
-    expect(dbMocks.markOutboxFailed).toHaveBeenCalledWith("outbox-ev-1", expect.stringMatching(/Missing Access/i));
+    expect(create).not.toHaveBeenCalled();
+    expect(dbMocks.markOutboxFailed).toHaveBeenCalledWith("outbox-ev-1", expect.stringMatching(/private usable ops queue/i));
     expect(dbMocks.markOutboxSent).not.toHaveBeenCalled();
   });
 
