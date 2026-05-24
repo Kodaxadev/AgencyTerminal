@@ -148,21 +148,47 @@ async function handleTicketCreatedOutbox(
   }
 }
 
+function logStaleFailure(
+  event: "stale_alert_routing_failed" | "stale_alert_send_failed",
+  guildId: string,
+  evidenceId: string,
+  reason: string,
+  error?: unknown,
+) {
+  const payload: Record<string, unknown> = { level: "error", event, guildId, evidenceId, reason };
+  if (error instanceof Error) {
+    payload.error = { name: error.name, message: error.message };
+  }
+  console.error(JSON.stringify(payload));
+}
+
 async function postStaleAlert(
   client: Client,
   guildId: string,
   ev: { id: string; shortId: string | null; title: string; metricCategory: string },
 ): Promise<"sent" | "missing_ops_channel" | "send_failed"> {
   const opsQueueChannelId = process.env.AGENCY_OPS_QUEUE_CHANNEL_ID;
-  if (!opsQueueChannelId) return "missing_ops_channel";
+  if (!opsQueueChannelId) {
+    logStaleFailure("stale_alert_routing_failed", guildId, ev.id, "missing_channel_id");
+    return "missing_ops_channel";
+  }
 
   const guild = await client.guilds.fetch(guildId);
-  const channel = await guild.channels.fetch(opsQueueChannelId);
+  const channel = await guild.channels.fetch(opsQueueChannelId).catch(() => null);
 
-  if (!channel || channel.type !== ChannelType.GuildText) return "missing_ops_channel";
+  if (!channel) {
+    logStaleFailure("stale_alert_routing_failed", guildId, ev.id, "channel_not_found");
+    return "missing_ops_channel";
+  }
+
+  if (channel.type !== ChannelType.GuildText) {
+    logStaleFailure("stale_alert_routing_failed", guildId, ev.id, "wrong_channel_type");
+    return "missing_ops_channel";
+  }
 
   const everyoneOverwrite = channel.permissionOverwrites.resolve(guild.roles.everyone.id);
   if (!everyoneOverwrite || !everyoneOverwrite.deny?.has(PermissionsBitField.Flags.ViewChannel)) {
+    logStaleFailure("stale_alert_routing_failed", guildId, ev.id, "public_channel");
     return "missing_ops_channel";
   }
 
@@ -184,7 +210,8 @@ async function postStaleAlert(
       embeds: [embed],
     });
     return "sent";
-  } catch {
+  } catch (err) {
+    logStaleFailure("stale_alert_send_failed", guildId, ev.id, "discord_send_failed", err);
     return "send_failed";
   }
 }

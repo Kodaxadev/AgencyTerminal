@@ -22,6 +22,7 @@ describe("stale-alert private channel routing", () => {
     dbMocks.claimDueOutbox.mockResolvedValue([]);
     dbMocks.findStaleEvidence.mockResolvedValue([]);
     process.env = { ...originalEnv, AGENCY_OPS_QUEUE_CHANNEL_ID: "ops-channel-1" };
+    vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   it("routes stale alerts to the configured channel ID, not a channel named ops-queue", async () => {
@@ -43,6 +44,8 @@ describe("stale-alert private channel routing", () => {
     await processOutbox(client, "guild-1", 1);
 
     expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"missing_channel_id"'));
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"stale_alert_routing_failed"'));
   });
 
   it("configured channel not found does not send and does not mark stale", async () => {
@@ -52,6 +55,8 @@ describe("stale-alert private channel routing", () => {
     await processOutbox(client, "guild-1", 1);
 
     expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"channel_not_found"'));
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"stale_alert_routing_failed"'));
   });
 
   it("configured channel viewable by @everyone does not send and does not mark stale", async () => {
@@ -66,6 +71,22 @@ describe("stale-alert private channel routing", () => {
 
     expect(publicChannel.send).not.toHaveBeenCalled();
     expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"public_channel"'));
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"stale_alert_routing_failed"'));
+  });
+
+  it("Discord send failure logs stale_alert_send_failed, does not mark stale", async () => {
+    dbMocks.findStaleEvidence.mockResolvedValue([staleEv()]);
+    const opsChannel = makePrivateOpsChannel({ id: "ops-channel-1" });
+    opsChannel.send = vi.fn().mockRejectedValue(new Error("Discord API down"));
+    const client = makeClientForStale(opsChannel);
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"discord_send_failed"'));
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"stale_alert_send_failed"'));
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"Discord API down"'));
   });
 
   it("configured private channel posts exactly one stale alert and marks evidence stale", async () => {
@@ -79,6 +100,7 @@ describe("stale-alert private channel routing", () => {
     const [payload] = (opsChannel.send as ReturnType<typeof vi.fn>).mock.calls[0] as [{ content: string }];
     expect(payload.content).toContain("stale-alert:ev-stale-1");
     expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it("already-posted stale alert is not re-sent but evidence is still marked stale", async () => {
@@ -97,6 +119,7 @@ describe("stale-alert private channel routing", () => {
 
     expect(opsChannel.send).not.toHaveBeenCalled();
     expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
+    expect(console.error).not.toHaveBeenCalled();
   });
 });
 
