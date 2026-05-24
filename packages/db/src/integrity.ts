@@ -20,7 +20,7 @@ export function getEvidenceIdempotencyResult(
   return {
     id: payload.evidenceId,
     shortId: typeof payload.evidenceShortId === "string" ? payload.evidenceShortId : null,
-    validationRequiredApprovals: payload.validationRequiredApprovals as number,
+    validationRequiredApprovals: payload.validationRequiredApprovals,
   };
 }
 

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ChannelType, PermissionsBitField } from "discord.js";
 import { processOutbox } from "../outbox-processor";
 
 const dbMocks = vi.hoisted(() => ({
@@ -360,9 +359,9 @@ function makeClient(input: {
 }) {
   const channelMap = new Map(input.fetchedChannels.map((channel) => [channel.id, channel]));
   const fetchFn = vi.fn().mockResolvedValue(channelMap);
-  fetchFn.mockImplementation(async (id?: string) => {
-    if (id) return channelMap.get(id) ?? null;
-    return channelMap;
+  fetchFn.mockImplementation((id?: string) => {
+    if (id) return Promise.resolve(channelMap.get(id) ?? null);
+    return Promise.resolve(channelMap);
   });
   return {
     guilds: {

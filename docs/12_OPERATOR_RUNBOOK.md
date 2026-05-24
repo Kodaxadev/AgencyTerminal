@@ -26,7 +26,7 @@
 
 ## Daily operations
 
-- Check `#ops-queue` for stale evidence.
+- Check the configured private ops queue channel for review cards and stale evidence.
 - Check `#audit-log` for reversals, corrections, or overrides.
 - Review pending enlistment/contract/intel cases.
 - Check controls page for failed Discord projections.

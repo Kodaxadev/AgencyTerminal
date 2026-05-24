@@ -162,9 +162,8 @@ describe("interaction handler safety", () => {
 
     await handleInteraction(interaction as never);
 
-    expect(interaction.editReply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining("queued for private review") }),
-    );
+    const editReplyCalls = interaction.editReply.mock.calls as Array<[{ content?: string }]>;
+    expect(editReplyCalls.some(([reply]) => reply.content?.includes("queued for private review"))).toBe(true);
   });
 });
 

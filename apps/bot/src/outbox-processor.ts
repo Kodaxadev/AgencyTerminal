@@ -192,7 +192,7 @@ async function postStaleAlert(
     return "missing_ops_channel";
   }
 
-  const opsChannel = channel as TextChannel;
+  const opsChannel = channel;
   if (await staleAlertAlreadyPosted(opsChannel, ev.id)) return "sent";
 
   const staleId = ev.shortId ?? ev.id;
@@ -250,10 +250,10 @@ function validateReviewProjectionPayload(p: Record<string, unknown>): EvidenceRe
   if (!subjectDiscordId) throw new Error("evidence_review_projection payload missing or empty subjectDiscordId");
 
   const metricCategory = VALID_METRICS.includes(p.metricCategory as MetricCategory) ? p.metricCategory as MetricCategory : null;
-  if (!metricCategory) throw new Error(`evidence_review_projection payload invalid metricCategory: ${p.metricCategory}`);
+  if (!metricCategory) throw new Error(`evidence_review_projection payload invalid metricCategory: ${String(p.metricCategory)}`);
 
   const sensitivity = VALID_SENSITIVITIES.includes(p.sensitivity as EvidenceRecord["sensitivity"]) ? p.sensitivity as EvidenceRecord["sensitivity"] : null;
-  if (!sensitivity) throw new Error(`evidence_review_projection payload invalid sensitivity: ${p.sensitivity}`);
+  if (!sensitivity) throw new Error(`evidence_review_projection payload invalid sensitivity: ${String(p.sensitivity)}`);
 
   const title = typeof p.title === "string" ? p.title : null;
   if (title === null) throw new Error("evidence_review_projection payload missing or invalid title");
@@ -263,11 +263,11 @@ function validateReviewProjectionPayload(p: Record<string, unknown>): EvidenceRe
 
   const vra = p.validationRequiredApprovals;
   if (typeof vra !== "number" || !Number.isInteger(vra) || vra < 1) {
-    throw new Error(`evidence_review_projection payload invalid validationRequiredApprovals: ${vra}`);
+    throw new Error(`evidence_review_projection payload invalid validationRequiredApprovals: ${String(vra)}`);
   }
 
   const submittedMode = VALID_MODES.includes(p.submittedMode as EvidenceRecord["submittedMode"]) ? p.submittedMode as EvidenceRecord["submittedMode"] : null;
-  if (!submittedMode) throw new Error(`evidence_review_projection payload invalid submittedMode: ${p.submittedMode}`);
+  if (!submittedMode) throw new Error(`evidence_review_projection payload invalid submittedMode: ${String(p.submittedMode)}`);
 
   if (p.evidenceShortId !== undefined && p.evidenceShortId !== null && typeof p.evidenceShortId !== "string") {
     throw new Error(`evidence_review_projection payload invalid evidenceShortId type: ${typeof p.evidenceShortId}`);

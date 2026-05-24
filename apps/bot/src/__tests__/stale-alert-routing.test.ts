@@ -149,9 +149,9 @@ function makeClientForStale(opsChannel: Record<string, unknown> | null) {
       fetch: vi.fn().mockResolvedValue({
         roles: { everyone: { id: "guild-everyone" } },
         channels: {
-          fetch: vi.fn().mockImplementation(async (id?: string) => {
-            if (id) return channelMap.get(id) ?? null;
-            return channelMap;
+          fetch: vi.fn().mockImplementation((id?: string) => {
+            if (id) return Promise.resolve(channelMap.get(id) ?? null);
+            return Promise.resolve(channelMap);
           }),
           create: vi.fn(),
         },
