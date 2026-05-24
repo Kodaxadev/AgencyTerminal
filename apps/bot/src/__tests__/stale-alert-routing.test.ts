@@ -38,54 +38,50 @@ describe("stale-alert private channel routing", () => {
     expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
   });
 
-  it("missing AGENCY_OPS_QUEUE_CHANNEL_ID creates a private ops queue and posts", async () => {
+  it("missing AGENCY_OPS_QUEUE_CHANNEL_ID fails closed and does not mark stale", async () => {
     process.env = { ...originalEnv };
     dbMocks.findStaleEvidence.mockResolvedValue([staleEv()]);
-    const createdChannel = makePrivateOpsChannel({ id: "created-ops" });
-    const create = vi.fn().mockResolvedValue(createdChannel);
+    const create = vi.fn();
     const client = makeClientForStale(null, create);
 
     await processOutbox(client, "guild-1", 1);
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      name: "ops-queue",
-    }));
-    expect(createdChannel.send).toHaveBeenCalledOnce();
-    expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
+    expect(create).not.toHaveBeenCalled();
+    expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"ops_queue_setup_failed"'));
   });
 
-  it("configured channel not found falls back to private ops queue setup", async () => {
+  it("configured channel not found fails closed without private setup", async () => {
     dbMocks.findStaleEvidence.mockResolvedValue([staleEv()]);
-    const createdChannel = makePrivateOpsChannel({ id: "created-ops" });
-    const create = vi.fn().mockResolvedValue(createdChannel);
+    const create = vi.fn();
     const client = makeClientForStale(null, create);
 
     await processOutbox(client, "guild-1", 1);
 
-    expect(create).toHaveBeenCalledOnce();
-    expect(createdChannel.send).toHaveBeenCalledOnce();
-    expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
+    expect(create).not.toHaveBeenCalled();
+    expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"channel_not_found"'));
   });
 
-  it("configured channel viewable by @everyone is not used and private setup is used", async () => {
+  it("configured channel viewable by @everyone fails closed without private setup", async () => {
     dbMocks.findStaleEvidence.mockResolvedValue([staleEv()]);
     const publicChannel = makePrivateOpsChannel({
       id: "ops-channel-1",
       permissionOverwrites: { resolve: vi.fn().mockReturnValue(null) },
     });
-    const createdChannel = makePrivateOpsChannel({ id: "created-ops" });
-    const create = vi.fn().mockResolvedValue(createdChannel);
+    const create = vi.fn();
     const client = makeClientForStale(publicChannel, create);
 
     await processOutbox(client, "guild-1", 1);
 
     expect(publicChannel.send).not.toHaveBeenCalled();
-    expect(createdChannel.send).toHaveBeenCalledOnce();
-    expect(dbMocks.markEvidenceStale).toHaveBeenCalledWith("ev-stale-1");
+    expect(create).not.toHaveBeenCalled();
+    expect(dbMocks.markEvidenceStale).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"public_channel"'));
   });
 
   it("ops queue setup failure does not send and does not mark stale", async () => {
-    process.env = { ...originalEnv };
+    process.env = { ...originalEnv, NODE_ENV: "development", AGENCY_ALLOW_OPS_QUEUE_SETUP: "true" };
     dbMocks.findStaleEvidence.mockResolvedValue([staleEv()]);
     const create = vi.fn().mockRejectedValue(new Error("Missing Access"));
     const client = makeClientForStale(null, create);
