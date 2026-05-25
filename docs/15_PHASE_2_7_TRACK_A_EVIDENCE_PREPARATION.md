@@ -128,6 +128,15 @@ Current blocker evidence:
 Track A hosted start remains blocked until lifecycle/shutdown handling has been
 reviewed and any required code patch has merged.
 
+Implementation evidence pending review:
+
+- runtime lifecycle hardening is being implemented in
+  `codex/track-a-runtime-lifecycle-hardening`;
+- Track A hosted start remains blocked until that implementation is reviewed,
+  merged, and verified by the separate Track A setup/acceptance pass;
+- this preparation record still does not authorize Railway resource creation,
+  Railway linking, variable mutation, deployment, or bot restart.
+
 ## Environment Inventory
 
 Record presence only. Do not print values.

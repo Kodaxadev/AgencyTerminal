@@ -12,6 +12,7 @@ import {
   markOutboxFailed,
   markOutboxSent,
   persistTicketChannelId,
+  recoverAbandonedOutboxClaims,
   writeAuditLog,
 } from "@agency-terminal/db";
 import {
@@ -45,6 +46,17 @@ export async function processOutbox(
   guildId: string,
   maxBatch = 20,
 ): Promise<{ processed: number; errors: number; staleAlerts: number }> {
+  const recovered = await recoverAbandonedOutboxClaims();
+  if (recovered.recovered > 0) {
+    console.warn(JSON.stringify({
+      level: "warn",
+      event: "abandoned_outbox_claims_recovered",
+      guildId,
+      recovered: recovered.recovered,
+      leaseMs: recovered.leaseMs,
+    }));
+  }
+
   const messages = await claimDueOutbox(maxBatch);
   let processed = 0;
   let errors = 0;

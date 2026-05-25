@@ -24,6 +24,19 @@ export interface EnqueueOutboxInput {
 }
 
 type DbExecutor = Pick<typeof db, "insert" | "select" | "update" | "execute">;
+export const DEFAULT_OUTBOX_PROCESSING_LEASE_MS = 5 * 60 * 1000;
+
+export interface RecoverAbandonedOutboxClaimsInput {
+  leaseMs?: number;
+  now?: Date;
+  client?: Pick<typeof db, "update">;
+}
+
+export interface RecoverAbandonedOutboxClaimsResult {
+  recovered: number;
+  leaseMs: number;
+  cutoff: Date;
+}
 
 /**
  * Enqueue a message in the Discord outbox for async delivery.
@@ -144,6 +157,36 @@ export async function claimDueOutbox(limit = 20): Promise<
     attempts: number;
     maxAttempts: number;
   }>;
+}
+
+export async function recoverAbandonedOutboxClaims(
+  input: RecoverAbandonedOutboxClaimsInput = {},
+): Promise<RecoverAbandonedOutboxClaimsResult> {
+  const leaseMs = input.leaseMs ?? DEFAULT_OUTBOX_PROCESSING_LEASE_MS;
+  const now = input.now ?? new Date();
+  const cutoff = new Date(now.getTime() - leaseMs);
+  const client = input.client ?? db;
+  const reason = "abandoned_processing_claim_recovered";
+
+  const rows = await client
+    .update(discordOutbox)
+    .set({
+      status: "failed",
+      lastError: reason,
+      nextAttemptAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(discordOutbox.status, "processing"),
+      lte(discordOutbox.updatedAt, cutoff),
+    ))
+    .returning({ id: discordOutbox.id });
+
+  return {
+    recovered: Array.isArray(rows) ? rows.length : 0,
+    leaseMs,
+    cutoff,
+  };
 }
 
 /**

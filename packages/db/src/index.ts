@@ -2,7 +2,7 @@
 // Drizzle ORM client backed by PostgreSQL via postgres-js.
 // DATABASE_URL must be set in the environment before importing.
 
-export { db, pool } from "./client";
+export { closeDbPool, db, pool } from "./client";
 export * from "../schema/drizzle-schema";
 export { createTicket } from "./tickets";
 export type { CreateTicketInput, CreateTicketResult, TicketType } from "./tickets";
@@ -20,9 +20,15 @@ export {
   claimDueOutbox,
   markOutboxSent,
   markOutboxFailed,
+  recoverAbandonedOutboxClaims,
   createTicketChannel,
   persistTicketChannelId,
 } from "./outbox";
-export type { EnqueueOutboxInput, OutboxEventType, CreateTicketChannelInput } from "./outbox";
+export type {
+  EnqueueOutboxInput,
+  OutboxEventType,
+  CreateTicketChannelInput,
+  RecoverAbandonedOutboxClaimsResult,
+} from "./outbox";
 export { getCapabilitiesForRoles, getRoleIdsForCapabilities } from "./permissions";
 export type { Capability } from "./permissions";
