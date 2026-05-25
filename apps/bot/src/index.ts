@@ -3,7 +3,7 @@ import { closeDbPool } from "@agency-terminal/db";
 import { registerCommands } from "./commands";
 import { handleInteraction } from "./handlers";
 import { startOutboxLoop } from "./outbox-loop";
-import { installRuntimeLifecycle } from "./runtime-lifecycle";
+import { installRuntimeLifecycle, type RuntimeLifecycleControls } from "./runtime-lifecycle";
 
 const requiredEnv = [
   "DISCORD_TOKEN",
@@ -57,6 +57,19 @@ function startupSelfCheck(client: Client): void {
   });
 }
 
+export async function loginWithLifecycleShutdownHandling(
+  client: Pick<Client, "login">,
+  lifecycle: Pick<RuntimeLifecycleControls, "isShuttingDown">,
+  token: string,
+): Promise<void> {
+  try {
+    await client.login(token);
+  } catch (error) {
+    if (lifecycle.isShuttingDown()) return;
+    throw error;
+  }
+}
+
 async function main() {
   validateEnv();
 
@@ -95,10 +108,12 @@ async function main() {
     lifecycle.attachLoop(outboxLoop);
   });
 
-  await client.login(process.env.DISCORD_TOKEN);
+  await loginWithLifecycleShutdownHandling(client, lifecycle, process.env.DISCORD_TOKEN!);
 }
 
-main().catch((error) => {
-  console.error("Fatal:", error);
-  process.exit(1);
-});
+if (process.env.NODE_ENV !== "test") {
+  main().catch((error) => {
+    console.error("Fatal:", error);
+    process.exit(1);
+  });
+}
