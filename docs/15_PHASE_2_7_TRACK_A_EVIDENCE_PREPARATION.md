@@ -76,19 +76,25 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
-Candidate start command:
+Existing package-script start command:
 
 ```powershell
 pnpm --filter @agency-terminal/bot start
 ```
 
-Important runtime caveat:
+Important runtime caveats:
 
 - `apps/bot/package.json` defines `start` as `tsx src/index.ts`.
 - The repository `build` command currently typechecks packages and does not emit
   compiled JavaScript.
 - Track A must prove that the Railway runtime installs and can execute the
   current `tsx`-based start path before the service is considered stable.
+- The package-script path above is not approved for a hosted Track A worker
+  start until runtime lifecycle hardening is reviewed.
+- Railway's Node.js SIGTERM guidance warns that starting through NPM, Yarn, or
+  PNPM can make the package manager the main process and intercept termination
+  signals. The later setup decision must select and verify a direct-runtime
+  process start strategy compatible with Railway signal delivery.
 - If Railway cannot run this start path cleanly, that is a Track A setup defect
   to review separately, not something to patch during this preparation pass.
 
@@ -96,6 +102,31 @@ Healthcheck caveat:
 
 - Do not configure or rely on a Railway healthcheck unless the bot runtime
   actually exposes the checked HTTP endpoint.
+
+## Pre-Start Runtime Lifecycle Blockers
+
+Before any Railway worker is started, a separate reviewed implementation or
+explicit disposition must address:
+
+- direct process start rather than an unreviewed pnpm-wrapped long-running
+  worker;
+- graceful `SIGTERM` and `SIGINT` handling;
+- stopping the outbox interval during shutdown;
+- closing the Discord client;
+- closing the database pool;
+- ensuring in-flight or interrupted projection work remains truthful/retryable;
+- whether an in-process overlap guard is required for the recurring outbox loop.
+
+Current blocker evidence:
+
+- `apps/bot/src/index.ts` has no visible `SIGTERM` or `SIGINT` handler;
+- the outbox loop is started with `setInterval(...)` without storing the interval
+  handle;
+- no Discord client shutdown call is visible in the entrypoint;
+- no database pool shutdown call is visible in the entrypoint.
+
+Track A hosted start remains blocked until lifecycle/shutdown handling has been
+reviewed and any required code patch has merged.
 
 ## Environment Inventory
 
@@ -179,8 +210,13 @@ Before Track A can pass, capture:
 - outbox processor log visibility;
 - structured ops queue rejection diagnostics visibility;
 - service restart or redeploy evidence;
+- evidence that runtime lifecycle/shutdown handling has been reviewed and any
+  required code patch merged before hosted worker start;
 - confirmation that the bot resumes without a local workstation process;
-- confirmation that no duplicate reviewer projection is created after restart.
+- confirmation that restart/redeploy does not create duplicate reviewer
+  projections;
+- confirmation that restart/redeploy does not silently lose retryable outbox
+  work.
 
 Evidence commands should avoid printing secret values. Railway logs and status
 should be captured with bounded output.
@@ -239,6 +275,8 @@ railway service logs --lines 200
 - [ ] Railway project/service existence decided and recorded.
 - [ ] Service root, build command, and start command reviewed.
 - [ ] Runtime caveat for `tsx` start path accepted or separately corrected.
+- [ ] Runtime lifecycle/shutdown handling reviewed and any required code patch
+      merged before hosted worker start.
 - [ ] Required executable runtime variables present without values printed.
 - [ ] Shadow-style policy variables present without values printed.
 - [ ] Development owner and credential revocation procedures recorded.
@@ -250,6 +288,8 @@ railway service logs --lines 200
 - [ ] Bot and mapped reviewer/override role access verified.
 - [ ] Logs visible to operator.
 - [ ] Restart/redeploy evidence captured.
+- [ ] Restart/redeploy does not create duplicate reviewer projections or silently
+      lose retryable outbox work.
 - [ ] Rollback plan recorded before worker start.
 - [ ] Hosted acceptance repeat completed.
 - [ ] Follow-up acceptance record explicitly states the Track A decision.
@@ -275,6 +315,10 @@ Track B Agency-guild rollout readiness remains blocked until Track A passes.
   https://docs.railway.com/guides/monorepo
 - Railway healthchecks:
   https://docs.railway.com/reference/healthchecks
+- Railway Node.js SIGTERM handling:
+  https://docs.railway.com/guides/nodejs-sigterm
+- Railway deployment teardown:
+  https://docs.railway.com/deployments/deployment-teardown
 - Supabase database migrations:
   https://supabase.com/docs/guides/deployment/database-migrations
 - Supabase backup and restore:
