@@ -45,6 +45,67 @@ describe("runtime lifecycle shutdown", () => {
     expect(processLike.exitCode).toBe(0);
   });
 
+  it("SIGTERM before ready closes Discord and DB resources without outbox work", async () => {
+    const client = { destroy: vi.fn() };
+    const closeDbPool = vi.fn(async () => {});
+
+    const lifecycle = installRuntimeLifecycle({
+      client,
+      closeDbPool,
+      processLike,
+      shutdownTimeoutMs: 1000,
+    });
+
+    handlers.get("SIGTERM")?.();
+    await lifecycle.shutdown();
+
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+    expect(closeDbPool).toHaveBeenCalledTimes(1);
+    expect(lifecycle.isShuttingDown()).toBe(true);
+    expect(processLike.exitCode).toBe(0);
+  });
+
+  it("SIGINT before ready follows the same no-loop shutdown path", async () => {
+    const client = { destroy: vi.fn() };
+    const closeDbPool = vi.fn(async () => {});
+
+    const lifecycle = installRuntimeLifecycle({
+      client,
+      closeDbPool,
+      processLike,
+      shutdownTimeoutMs: 1000,
+    });
+
+    handlers.get("SIGINT")?.();
+    await lifecycle.shutdown();
+
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+    expect(closeDbPool).toHaveBeenCalledTimes(1);
+    expect(processLike.exitCode).toBe(0);
+  });
+
+  it("after-ready shutdown stops and drains the attached outbox loop once", async () => {
+    const loop = { stopAndDrain: vi.fn(async () => {}) };
+    const client = { destroy: vi.fn() };
+    const closeDbPool = vi.fn(async () => {});
+
+    const lifecycle = installRuntimeLifecycle({
+      client,
+      closeDbPool,
+      processLike,
+      shutdownTimeoutMs: 1000,
+    });
+    lifecycle.attachLoop(loop);
+
+    handlers.get("SIGTERM")?.();
+    handlers.get("SIGTERM")?.();
+    await lifecycle.shutdown();
+
+    expect(loop.stopAndDrain).toHaveBeenCalledTimes(1);
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+    expect(closeDbPool).toHaveBeenCalledTimes(1);
+  });
+
   it("SIGINT uses the same shutdown path", async () => {
     const loop = { stopAndDrain: vi.fn(async () => {}) };
     const client = { destroy: vi.fn() };

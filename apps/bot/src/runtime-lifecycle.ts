@@ -10,7 +10,7 @@ interface ProcessLike {
 }
 
 export interface InstallRuntimeLifecycleInput {
-  loop: Pick<OutboxLoopControls, "stopAndDrain">;
+  loop?: Pick<OutboxLoopControls, "stopAndDrain">;
   client: Pick<Client, "destroy">;
   closeDbPool: () => Promise<void>;
   processLike?: ProcessLike;
@@ -18,6 +18,8 @@ export interface InstallRuntimeLifecycleInput {
 }
 
 export interface RuntimeLifecycleControls {
+  attachLoop(loop: Pick<OutboxLoopControls, "stopAndDrain">): void;
+  isShuttingDown(): boolean;
   shutdown(signal?: SignalName): Promise<void>;
   uninstall(): void;
 }
@@ -51,6 +53,7 @@ export function installRuntimeLifecycle(
 ): RuntimeLifecycleControls {
   const processLike = input.processLike ?? process;
   const shutdownTimeoutMs = input.shutdownTimeoutMs ?? 15_000;
+  let loop = input.loop;
   let shutdownStarted = false;
   let shutdownPromise: Promise<void> | null = null;
 
@@ -60,11 +63,13 @@ export function installRuntimeLifecycle(
     let failed = false;
 
     shutdownPromise = (async () => {
-      try {
-        await withTimeout(input.loop.stopAndDrain(), shutdownTimeoutMs);
-      } catch (error) {
-        failed = true;
-        logShutdownStepFailure("outbox_loop", error);
+      if (loop) {
+        try {
+          await withTimeout(loop.stopAndDrain(), shutdownTimeoutMs);
+        } catch (error) {
+          failed = true;
+          logShutdownStepFailure("outbox_loop", error);
+        }
       }
 
       try {
@@ -98,6 +103,12 @@ export function installRuntimeLifecycle(
   processLike.on("SIGINT", onSigint);
 
   return {
+    attachLoop(nextLoop) {
+      loop = nextLoop;
+    },
+    isShuttingDown() {
+      return shutdownStarted;
+    },
     shutdown,
     uninstall() {
       processLike.off?.("SIGTERM", onSigterm);

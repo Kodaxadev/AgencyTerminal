@@ -72,7 +72,13 @@ async function main() {
     void handleInteraction(interaction);
   });
 
+  const lifecycle = installRuntimeLifecycle({
+    client,
+    closeDbPool,
+  });
+
   client.once("ready", () => {
+    if (lifecycle.isShuttingDown()) return;
     console.log(`SIG//AGENCY TERMINAL — ONLINE`);
     console.log(`Connected as ${client.user?.tag}`);
     startupSelfCheck(client);
@@ -86,11 +92,7 @@ async function main() {
       client,
       guildId: process.env.DISCORD_GUILD_ID!,
     });
-    installRuntimeLifecycle({
-      loop: outboxLoop,
-      client,
-      closeDbPool,
-    });
+    lifecycle.attachLoop(outboxLoop);
   });
 
   await client.login(process.env.DISCORD_TOKEN);

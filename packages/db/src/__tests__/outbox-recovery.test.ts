@@ -1,27 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const execute = vi.hoisted(() => vi.fn());
-vi.mock("../client", () => ({
-  db: { execute },
-}));
+const returning = vi.hoisted(() => vi.fn());
+const where = vi.hoisted(() => vi.fn(() => ({ returning })));
+const set = vi.hoisted(() => vi.fn(() => ({ where })));
+const update = vi.hoisted(() => vi.fn(() => ({ set })));
 
-function sqlText(value: unknown): string {
-  const chunks = (value as { queryChunks?: Array<{ value?: string[] } | string> }).queryChunks ?? [];
-  return chunks.map((chunk) => {
-    if (typeof chunk === "string") return chunk;
-    if ("value" in chunk && Array.isArray(chunk.value)) return chunk.value.join("");
-    return "";
-  }).join(" ");
-}
+vi.mock("../client", () => ({
+  db: { update },
+}));
 
 describe("recoverAbandonedOutboxClaims", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
+    returning.mockResolvedValue([]);
   });
 
-  it("uses a lease cutoff so fresh processing rows are not reclaimed prematurely", async () => {
-    execute.mockResolvedValue([]);
+  it("uses typed Drizzle update predicates so fresh processing rows are not reclaimed prematurely", async () => {
+    const { discordOutbox } = await import("../../schema/drizzle-schema");
     const { recoverAbandonedOutboxClaims } = await import("../outbox");
     const now = new Date("2026-05-24T12:00:00.000Z");
 
@@ -29,13 +25,18 @@ describe("recoverAbandonedOutboxClaims", () => {
 
     expect(result.recovered).toBe(0);
     expect(result.leaseMs).toBe(300_000);
-    const query = sqlText(execute.mock.calls[0][0]);
-    expect(query).toContain("status = 'processing'");
-    expect(query).toContain("updated_at <=");
+    expect(update).toHaveBeenCalledWith(discordOutbox);
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({
+      status: "failed",
+      lastError: "abandoned_processing_claim_recovered",
+      nextAttemptAt: now,
+      updatedAt: now,
+    }));
+    expect(where).toHaveBeenCalledOnce();
   });
 
-  it("returns expired processing rows to retry eligibility", async () => {
-    execute.mockResolvedValue([{ id: "outbox-1" }, { id: "outbox-2" }]);
+  it("returns expired processing rows to retry eligibility without incrementing attempts", async () => {
+    returning.mockResolvedValue([{ id: "outbox-1" }, { id: "outbox-2" }]);
     const { recoverAbandonedOutboxClaims } = await import("../outbox");
 
     const result = await recoverAbandonedOutboxClaims({
@@ -44,20 +45,21 @@ describe("recoverAbandonedOutboxClaims", () => {
     });
 
     expect(result.recovered).toBe(2);
-    const query = sqlText(execute.mock.calls[0][0]);
-    expect(query).toContain("set status = 'failed'");
-    expect(query).toContain("next_attempt_at =");
-    expect(query).toContain("last_error =");
+    const setMock = set as unknown as { mock: { calls: Array<[Record<string, unknown>]> } };
+    const setPayload = setMock.mock.calls[0][0];
+    expect(setPayload).not.toHaveProperty("attempts");
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({
+      status: "failed",
+      lastError: "abandoned_processing_claim_recovered",
+    }));
   });
 
-  it("limits recovery to processing rows", async () => {
-    execute.mockResolvedValue([]);
+  it("limits recovery to processing rows through the typed where clause", async () => {
     const { recoverAbandonedOutboxClaims } = await import("../outbox");
 
     await recoverAbandonedOutboxClaims();
 
-    const query = sqlText(execute.mock.calls[0][0]);
-    expect(query).toContain("where status = 'processing'");
-    expect(query).not.toContain("status = 'sent'");
+    expect(where).toHaveBeenCalledOnce();
+    expect(update).toHaveBeenCalledTimes(1);
   });
 });

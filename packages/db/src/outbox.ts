@@ -29,7 +29,7 @@ export const DEFAULT_OUTBOX_PROCESSING_LEASE_MS = 5 * 60 * 1000;
 export interface RecoverAbandonedOutboxClaimsInput {
   leaseMs?: number;
   now?: Date;
-  client?: Pick<typeof db, "execute">;
+  client?: Pick<typeof db, "update">;
 }
 
 export interface RecoverAbandonedOutboxClaimsResult {
@@ -168,16 +168,19 @@ export async function recoverAbandonedOutboxClaims(
   const client = input.client ?? db;
   const reason = "abandoned_processing_claim_recovered";
 
-  const rows = await client.execute(sql`
-    update discord_outbox
-    set status = 'failed',
-        last_error = ${reason},
-        next_attempt_at = ${now},
-        updated_at = ${now}
-    where status = 'processing'
-      and updated_at <= ${cutoff}
-    returning id
-  `);
+  const rows = await client
+    .update(discordOutbox)
+    .set({
+      status: "failed",
+      lastError: reason,
+      nextAttemptAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(discordOutbox.status, "processing"),
+      lte(discordOutbox.updatedAt, cutoff),
+    ))
+    .returning({ id: discordOutbox.id });
 
   return {
     recovered: Array.isArray(rows) ? rows.length : 0,
