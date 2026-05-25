@@ -18,4 +18,8 @@ const pool = postgres(DATABASE_URL, {
 
 export const db = drizzle(pool, { schema });
 
+export async function closeDbPool(): Promise<void> {
+  await pool.end({ timeout: 5 });
+}
+
 export { pool };

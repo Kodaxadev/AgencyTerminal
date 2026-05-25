@@ -1,7 +1,9 @@
 import { Client, GatewayIntentBits } from "discord.js";
+import { closeDbPool } from "@agency-terminal/db";
 import { registerCommands } from "./commands";
 import { handleInteraction } from "./handlers";
-import { processOutbox } from "./outbox-processor";
+import { startOutboxLoop } from "./outbox-loop";
+import { installRuntimeLifecycle } from "./runtime-lifecycle";
 
 const requiredEnv = [
   "DISCORD_TOKEN",
@@ -80,12 +82,15 @@ async function main() {
       process.env.DISCORD_TOKEN!,
     );
 
-    // Start outbox processor
-    setInterval(() => {
-      void processOutbox(client, process.env.DISCORD_GUILD_ID!).catch((err) => {
-        console.error("Outbox processor error:", err);
-      });
-    }, 10_000);
+    const outboxLoop = startOutboxLoop({
+      client,
+      guildId: process.env.DISCORD_GUILD_ID!,
+    });
+    installRuntimeLifecycle({
+      loop: outboxLoop,
+      client,
+      closeDbPool,
+    });
   });
 
   await client.login(process.env.DISCORD_TOKEN);

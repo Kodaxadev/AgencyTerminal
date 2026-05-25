@@ -9,6 +9,7 @@ const dbMocks = vi.hoisted(() => ({
   markOutboxFailed: vi.fn(),
   markOutboxSent: vi.fn(),
   persistTicketChannelId: vi.fn(),
+  recoverAbandonedOutboxClaims: vi.fn(),
   writeAuditLog: vi.fn(),
 }));
 
@@ -20,6 +21,7 @@ describe("outbox processor channel fetch reconciliation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMocks.findStaleEvidence.mockResolvedValue([]);
+    dbMocks.recoverAbandonedOutboxClaims.mockResolvedValue({ recovered: 0, leaseMs: 300_000 });
     process.env = { ...originalEnv };
   });
 
@@ -96,6 +98,7 @@ describe("evidence_review_projection outbox worker", () => {
     vi.clearAllMocks();
     dbMocks.findStaleEvidence.mockResolvedValue([]);
     dbMocks.getRoleIdsForCapabilities.mockResolvedValue(["reviewer-role-1"]);
+    dbMocks.recoverAbandonedOutboxClaims.mockResolvedValue({ recovered: 0, leaseMs: 300_000 });
     process.env = { ...originalEnv, AGENCY_OPS_QUEUE_CHANNEL_ID: "ops-channel-1" };
   });
 
@@ -331,6 +334,49 @@ describe("evidence_review_projection outbox worker", () => {
 
     expect(opsChannel.send).not.toHaveBeenCalled();
     expect(dbMocks.markOutboxSent).toHaveBeenCalledWith("outbox-ev-1");
+  });
+
+  it("recovered projection still reconciles to one marker without duplicate send", async () => {
+    dbMocks.recoverAbandonedOutboxClaims.mockResolvedValue({ recovered: 1, leaseMs: 300_000 });
+    dbMocks.claimDueOutbox.mockResolvedValue([projectionMsg]);
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const opsChannel = makePrivateOpsChannel({
+      messages: {
+        fetch: vi.fn().mockResolvedValue(
+          new Map([["msg-1", { content: "Evidence review [evidence-review:ev-proof-1]" }]]),
+        ),
+      },
+    });
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [opsChannel], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(opsChannel.send).not.toHaveBeenCalled();
+    expect(dbMocks.markOutboxSent).toHaveBeenCalledWith("outbox-ev-1");
+    expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("abandoned_outbox_claims_recovered"));
+    expect(consoleWarn).not.toHaveBeenCalledWith(expect.stringContaining("http"));
+    consoleWarn.mockRestore();
+  });
+
+  it("recovered ticket projection keeps existing channel reconciliation", async () => {
+    dbMocks.recoverAbandonedOutboxClaims.mockResolvedValue({ recovered: 1, leaseMs: 300_000 });
+    dbMocks.claimDueOutbox.mockResolvedValue([ticketCreatedMessage()]);
+    const existingChannel = { id: "channel-existing", topic: "Contract | TKT-1 [agency-ticket:ticket-1]" };
+    const create = vi.fn();
+    const client = makeClient({
+      cachedChannels: [],
+      fetchedChannels: [existingChannel],
+      create,
+    });
+
+    await processOutbox(client, "guild-1", 1);
+
+    expect(create).not.toHaveBeenCalled();
+    expect(dbMocks.persistTicketChannelId).toHaveBeenCalledWith("ticket-1", "channel-existing");
+    expect(dbMocks.writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+      action: "discord_channel_reconciled",
+      subjectId: "ticket-1",
+    }));
   });
 
   it("Discord send failure causes retry/failure marking", async () => {

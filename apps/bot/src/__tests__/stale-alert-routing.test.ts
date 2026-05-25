@@ -10,6 +10,7 @@ const dbMocks = vi.hoisted(() => ({
   markOutboxFailed: vi.fn(),
   markOutboxSent: vi.fn(),
   persistTicketChannelId: vi.fn(),
+  recoverAbandonedOutboxClaims: vi.fn(),
   writeAuditLog: vi.fn(),
 }));
 
@@ -23,6 +24,7 @@ describe("stale-alert private channel routing", () => {
     dbMocks.claimDueOutbox.mockResolvedValue([]);
     dbMocks.findStaleEvidence.mockResolvedValue([]);
     dbMocks.getRoleIdsForCapabilities.mockResolvedValue(["reviewer-role-1"]);
+    dbMocks.recoverAbandonedOutboxClaims.mockResolvedValue({ recovered: 0, leaseMs: 300_000 });
     process.env = { ...originalEnv, AGENCY_OPS_QUEUE_CHANNEL_ID: "ops-channel-1" };
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
