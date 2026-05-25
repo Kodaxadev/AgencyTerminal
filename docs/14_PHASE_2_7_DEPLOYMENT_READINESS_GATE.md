@@ -144,8 +144,13 @@ Required evidence:
 - `.env` remains ignored and untracked;
 - development guild IDs are absent from Track B production configuration;
 - disposable database URLs are absent from Track B production configuration;
-- token rotation owner and procedure are recorded;
-- at least two operators know how to revoke the bot token and database secret.
+- Track A: one named development deployment owner is recorded;
+- Track A: development bot token and development DB credential
+  revocation/rotation procedure is documented and can be executed without
+  retrieving secrets from chat logs or local shell history;
+- Track B: at least two named Agency/production operators know how to revoke or
+  rotate the bot token and database credential;
+- Track B: escalation ownership for credential compromise is recorded.
 
 Go/no-go:
 
@@ -175,11 +180,24 @@ Track B additional required evidence:
 - retention and cleanup policy is approved;
 - no direct manual writes are required to create operational ledger state.
 
-Go/no-go:
+Track A database go/no-go:
 
-- GO only if migrations pass on the intended database and rollback/restore steps
-  are documented before live evidence enters the ledger.
-- NO-GO if the target schema has been changed outside migrations.
+- GO only if migrations pass against the dedicated development AgencyTerminal
+  database, the hosted runtime can connect with its deployed identity, and
+  non-authoritative test-data retention/reset/cleanup disposition is recorded.
+- NO-GO if the development schema has drifted outside migrations or test-data
+  disposition is missing.
+
+Track B database go/no-go:
+
+- GO only if migrations pass against the intended production database, schema
+  matches repository migrations, backup and restore procedure is recorded,
+  expected restore downtime is recorded, no production schema drift outside
+  migrations exists, and no unapproved manual writes are required to create
+  operational ledger state.
+- NO-GO if production backup/restore evidence is missing, production schema has
+  drifted outside migrations, or operational ledger state requires unapproved
+  manual writes.
 
 ## Discord Guild Gate
 
