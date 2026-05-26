@@ -40,12 +40,22 @@ export async function saveRetentionPolicy(
     enabled: normalized.enabled,
     updatedAt: new Date(),
   };
-  const [row] = await db.insert(retentionPolicies).values(values).onConflictDoUpdate({
-    target: [retentionPolicies.guildId, retentionPolicies.class],
-    set: values,
-  }).returning();
-  await writeRetentionAudit(input.guildId, actorDiscordId, "controls_retention_policy_saved", row.id);
-  return buildRetentionPolicyDtos(input.guildId, [row]).find((policy) => policy.class === row.class)!;
+  return db.transaction(async (tx) => {
+    const [row] = await tx.insert(retentionPolicies).values(values).onConflictDoUpdate({
+      target: [retentionPolicies.guildId, retentionPolicies.class],
+      set: values,
+    }).returning();
+    await tx.insert(auditLog).values({
+      guildId: input.guildId,
+      actorDiscordId,
+      action: "controls_retention_policy_saved",
+      subjectType: "retention_policy",
+      subjectId: row.id,
+      payload: {},
+      sensitivity: "officer_only",
+    });
+    return buildRetentionPolicyDtos(input.guildId, [row]).find((policy) => policy.class === row.class)!;
+  });
 }
 
 export async function dryRunRetention(guildId: string): Promise<RetentionDryRunDto> {

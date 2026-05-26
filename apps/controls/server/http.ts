@@ -6,6 +6,8 @@ import { getBootstrapIdsForGuild, parseControlsGuilds, resolveControlsGuild } fr
 import { shouldRefreshSessionAuthorization } from "./auth/session-refresh";
 import { handleDatabaseDiagnostics } from "./diagnostics";
 import { logApiError } from "./error-logging";
+import { handleMutationRateLimit } from "./mutation-rate-limit";
+import { requireTrustedMutationOrigin } from "./request-guards";
 import { handleExportsRoute } from "./routes/exports";
 import { handleQueueRoute } from "./routes/queues";
 import { handleRetentionRoute } from "./routes/retention";
@@ -65,6 +67,7 @@ export async function handleApiRequest(
   if (!url.pathname.startsWith("/api/")) return false;
 
   try {
+    requireTrustedMutationOrigin(req, deps.env);
     if (url.pathname === "/api/auth/status" && req.method === "GET") {
       await handleAuthStatus(req, res, deps);
       return true;
@@ -91,6 +94,14 @@ export async function handleApiRequest(
     }
 
     const auth = await authenticate(req, deps);
+    if (await handleMutationRateLimit({
+      req,
+      res,
+      url,
+      env: deps.env,
+      repository: deps.repository,
+      session: auth.session,
+    })) return true;
     await routeProtectedApi(req, res, url, deps, auth);
     return true;
   } catch (error) {

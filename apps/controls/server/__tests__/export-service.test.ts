@@ -34,4 +34,26 @@ describe("controls export service", () => {
       rows: [{ id: "ticket-1" }],
     });
   });
+
+  it("redacts high-risk row fields from export payloads", () => {
+    const payload = buildExportPayload("ledger", "guild-1", [{
+      kind: "evidence",
+      id: "evidence-1",
+      title: "Visible title",
+      description: "sensitive report body",
+      payload: { source: "confidential" },
+      walletAddress: "0xsecret",
+      createdAt: "2026-05-26T15:30:00.000Z",
+    }], new Date("2026-05-26T15:30:00.000Z"));
+
+    expect(payload.rows[0]).toEqual({
+      kind: "evidence",
+      id: "evidence-1",
+      title: "Visible title",
+      description: "[REDACTED]",
+      payload: "[REDACTED]",
+      walletAddress: "[REDACTED]",
+      createdAt: "2026-05-26T15:30:00.000Z",
+    });
+  });
 });

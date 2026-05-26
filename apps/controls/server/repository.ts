@@ -15,6 +15,7 @@ import { buildGuildConfigValues, toGuildConfigDto } from "./config-view";
 import { buildExport, listAvailableExports } from "./export-repository";
 import { buildOperationalHealthChecks } from "./health-view";
 import { listClearanceTickets, listContractTickets, listIntelEvidence } from "./queue-repository";
+import { consumeRateLimit, type RateLimitInput, type RateLimitResult } from "./rate-limit-repository";
 import { dryRunRetention, listRetentionPolicies, runRetention, saveRetentionPolicy } from "./retention-repository";
 import type {
   AuditLogDto,
@@ -36,6 +37,7 @@ import type {
 } from "../src/contracts";
 
 export interface ControlsRepository {
+  consumeRateLimit(input: RateLimitInput): Promise<RateLimitResult>;
   listRoleCapabilityMappings(guildId: string): Promise<RoleCapabilityMapping[]>;
   getOverview(guildId: string, env: NodeJS.ProcessEnv): Promise<OverviewDto>;
   listHealth(guildId: string, env: NodeJS.ProcessEnv): Promise<HealthCheckDto[]>;
@@ -63,6 +65,7 @@ export interface ControlsRepository {
 
 export function createControlsRepository(): ControlsRepository {
   return {
+    consumeRateLimit,
     listRoleCapabilityMappings,
     getOverview,
     listHealth,
@@ -101,12 +104,21 @@ async function getGuildConfig(guildId: string): Promise<GuildConfigDto> {
 
 async function saveGuildConfig(input: GuildConfigDto, actorDiscordId: string): Promise<GuildConfigDto> {
   const values = buildGuildConfigValues(input, new Date());
-  const [row] = await db.insert(guildConfig).values(values).onConflictDoUpdate({
-    target: guildConfig.guildId,
-    set: values,
-  }).returning();
-  await writeConfigAudit(input.guildId, actorDiscordId, "controls_config_saved", "guild_config", input.guildId);
-  return toGuildConfigDto(row);
+  return db.transaction(async (tx) => {
+    const [row] = await tx.insert(guildConfig).values(values).onConflictDoUpdate({
+      target: guildConfig.guildId,
+      set: values,
+    }).returning();
+    await tx.insert(auditLog).values({
+      guildId: input.guildId,
+      actorDiscordId,
+      action: "controls_config_saved",
+      subjectType: "guild_config",
+      subjectId: input.guildId,
+      sensitivity: "officer_only",
+    });
+    return toGuildConfigDto(row);
+  });
 }
 
 async function listRoleCapabilityMappings(guildId: string): Promise<RoleCapabilityMapping[]> {
@@ -129,21 +141,39 @@ async function createRoleMapping(
   input: RoleCapabilityMapping & { guildId: string },
   actorDiscordId: string,
 ): Promise<RoleMappingDto> {
-  const [row] = await db.insert(roleMappings).values({
-    guildId: input.guildId,
-    discordRoleId: input.discordRoleId,
-    capability: input.capability,
-  }).returning();
-  await writeConfigAudit(input.guildId, actorDiscordId, "controls_role_mapping_created", "role_mapping", row.id);
-  return toRoleMappingDto(row);
+  return db.transaction(async (tx) => {
+    const [row] = await tx.insert(roleMappings).values({
+      guildId: input.guildId,
+      discordRoleId: input.discordRoleId,
+      capability: input.capability,
+    }).returning();
+    await tx.insert(auditLog).values({
+      guildId: input.guildId,
+      actorDiscordId,
+      action: "controls_role_mapping_created",
+      subjectType: "role_mapping",
+      subjectId: row.id,
+      sensitivity: "officer_only",
+    });
+    return toRoleMappingDto(row);
+  });
 }
 
 async function deleteRoleMapping(guildId: string, id: string, actorDiscordId: string): Promise<void> {
-  const rows = await db.delete(roleMappings)
-    .where(and(eq(roleMappings.guildId, guildId), eq(roleMappings.id, id)))
-    .returning({ id: roleMappings.id });
-  if (rows.length === 0) throw new Error("Role mapping not found");
-  await writeConfigAudit(guildId, actorDiscordId, "controls_role_mapping_deleted", "role_mapping", id);
+  await db.transaction(async (tx) => {
+    const rows = await tx.delete(roleMappings)
+      .where(and(eq(roleMappings.guildId, guildId), eq(roleMappings.id, id)))
+      .returning({ id: roleMappings.id });
+    if (rows.length === 0) throw new Error("Role mapping not found");
+    await tx.insert(auditLog).values({
+      guildId,
+      actorDiscordId,
+      action: "controls_role_mapping_deleted",
+      subjectType: "role_mapping",
+      subjectId: id,
+      sensitivity: "officer_only",
+    });
+  });
 }
 
 async function listMetrics(guildId: string): Promise<MetricConfigDto[]> {
@@ -155,20 +185,29 @@ async function createMetricVersion(
   input: Omit<MetricConfigDto, "id" | "version"> & { guildId: string },
   actorDiscordId: string,
 ): Promise<MetricConfigDto> {
-  const latest = await db.select({ version: sql<number>`coalesce(max(${metricConfig.version}), 0)` })
-    .from(metricConfig)
-    .where(and(eq(metricConfig.guildId, input.guildId), eq(metricConfig.category, input.category as typeof metricConfig.$inferInsert.category)));
-  const nextVersion = Number(latest[0]?.version ?? 0) + 1;
-  const [row] = await db.insert(metricConfig).values({
-    guildId: input.guildId,
-    category: input.category as typeof metricConfig.$inferInsert.category,
-    basePoints: input.basePoints,
-    visibility: input.visibility as typeof metricConfig.$inferInsert.visibility,
-    enabled: input.enabled,
-    version: nextVersion,
-  }).returning();
-  await writeConfigAudit(input.guildId, actorDiscordId, "controls_metric_version_created", "metric_config", row.id);
-  return toMetricDto(row);
+  return db.transaction(async (tx) => {
+    const latest = await tx.select({ version: sql<number>`coalesce(max(${metricConfig.version}), 0)` })
+      .from(metricConfig)
+      .where(and(eq(metricConfig.guildId, input.guildId), eq(metricConfig.category, input.category as typeof metricConfig.$inferInsert.category)));
+    const nextVersion = Number(latest[0]?.version ?? 0) + 1;
+    const [row] = await tx.insert(metricConfig).values({
+      guildId: input.guildId,
+      category: input.category as typeof metricConfig.$inferInsert.category,
+      basePoints: input.basePoints,
+      visibility: input.visibility as typeof metricConfig.$inferInsert.visibility,
+      enabled: input.enabled,
+      version: nextVersion,
+    }).returning();
+    await tx.insert(auditLog).values({
+      guildId: input.guildId,
+      actorDiscordId,
+      action: "controls_metric_version_created",
+      subjectType: "metric_config",
+      subjectId: row.id,
+      sensitivity: "officer_only",
+    });
+    return toMetricDto(row);
+  });
 }
 
 async function listAudit(guildId: string): Promise<AuditLogDto[]> {
@@ -287,10 +326,6 @@ async function getOverview(guildId: string, env: NodeJS.ProcessEnv): Promise<Ove
 
 async function writeAudit(input: { guildId: string; actorDiscordId: string; action: string; subjectType: string; subjectId: string; payload?: Record<string, unknown> }): Promise<void> {
   await db.insert(auditLog).values({ ...input, sensitivity: "officer_only" });
-}
-
-async function writeConfigAudit(guildId: string, actorDiscordId: string, action: string, subjectType: string, subjectId: string): Promise<void> {
-  await writeAudit({ guildId, actorDiscordId, action, subjectType, subjectId });
 }
 
 async function countRows(table: typeof tickets | typeof evidence | typeof discordOutbox, where: ReturnType<typeof and>): Promise<number> {

@@ -3,6 +3,7 @@ import { db } from "../../../../packages/db/src/client";
 import { and, eq, lte } from "../../../../packages/db/src/query";
 import type { Capability, ControlsUser } from "../../src/contracts";
 import type { ControlsSession, SessionStore } from "./session";
+import { decryptSessionToken, encryptSessionToken, getSessionTokenSecret } from "./token-crypto";
 
 export class PostgresSessionStore implements SessionStore {
   async create(input: Omit<ControlsSession, "id"> & { id?: string }): Promise<ControlsSession> {
@@ -40,14 +41,15 @@ export class PostgresSessionStore implements SessionStore {
 }
 
 function toRow(session: ControlsSession): typeof controlsSessions.$inferInsert {
+  const secret = getSessionTokenSecret(process.env);
   return {
     id: session.id,
     guildId: session.guildId,
     user: session.user,
     discordRoleIds: session.discordRoleIds,
     capabilities: session.capabilities,
-    accessToken: session.accessToken,
-    refreshToken: session.refreshToken,
+    accessToken: encryptSessionToken(session.accessToken, secret),
+    refreshToken: encryptSessionToken(session.refreshToken, secret),
     tokenExpiresAt: new Date(session.tokenExpiresAt),
     expiresAt: new Date(session.expiresAt),
     updatedAt: new Date(session.validatedAt),
@@ -55,14 +57,15 @@ function toRow(session: ControlsSession): typeof controlsSessions.$inferInsert {
 }
 
 function fromRow(row: typeof controlsSessions.$inferSelect): ControlsSession {
+  const secret = getSessionTokenSecret(process.env);
   return {
     id: row.id,
     guildId: row.guildId,
     user: row.user as ControlsUser,
     discordRoleIds: toStringArray(row.discordRoleIds),
     capabilities: toStringArray(row.capabilities) as Capability[],
-    accessToken: row.accessToken,
-    refreshToken: row.refreshToken,
+    accessToken: decryptSessionToken(row.accessToken, secret),
+    refreshToken: decryptSessionToken(row.refreshToken, secret),
     tokenExpiresAt: row.tokenExpiresAt.getTime(),
     validatedAt: row.updatedAt.getTime(),
     expiresAt: row.expiresAt.getTime(),

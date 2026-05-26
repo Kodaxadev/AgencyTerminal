@@ -2,9 +2,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Capability, GuildConfigDto } from "../src/contracts";
 
 export const STATE_COOKIE = "controls_oauth_state";
+export const MAX_JSON_BODY_BYTES = 64 * 1024;
 
 export function controlsEnabled(env: NodeJS.ProcessEnv): boolean {
-  return env.CONTROLS_ENABLED !== "false";
+  return env.CONTROLS_ENABLED === "true";
 }
 
 export function requireOAuthEnv(env: NodeJS.ProcessEnv): {
@@ -57,19 +58,23 @@ export function toConfigInput(
   return {
     guildId,
     name: optionalString(body.name) ?? current.name,
-    adminChannelId: optionalString(body.adminChannelId),
-    auditChannelId: optionalString(body.auditChannelId),
-    opsQueueChannelId: optionalString(body.opsQueueChannelId),
-    archiveChannelId: optionalString(body.archiveChannelId),
-    doctrineChangesChannelId: optionalString(body.doctrineChangesChannelId),
+    adminChannelId: optionalPatchString(body, "adminChannelId", current.adminChannelId),
+    auditChannelId: optionalPatchString(body, "auditChannelId", current.auditChannelId),
+    opsQueueChannelId: optionalPatchString(body, "opsQueueChannelId", current.opsQueueChannelId),
+    archiveChannelId: optionalPatchString(body, "archiveChannelId", current.archiveChannelId),
+    doctrineChangesChannelId: optionalPatchString(body, "doctrineChangesChannelId", current.doctrineChangesChannelId),
     staleReviewHours: optionalNumber(body.staleReviewHours) ?? current.staleReviewHours,
   };
 }
 
 export async function readJsonObject(req: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
+  let size = 0;
   for await (const chunk of req as AsyncIterable<Buffer | string>) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    size += buffer.byteLength;
+    if (size > MAX_JSON_BODY_BYTES) throw new HttpError(413, "JSON body too large");
+    chunks.push(buffer);
   }
   if (chunks.length === 0) return {};
   const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
@@ -138,6 +143,14 @@ export class HttpError extends Error {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+}
+
+function optionalPatchString(
+  body: Record<string, unknown>,
+  key: string,
+  current: string | undefined,
+): string | undefined {
+  return Object.prototype.hasOwnProperty.call(body, key) ? optionalString(body[key]) : current;
 }
 
 function optionalNumber(value: unknown): number | undefined {
