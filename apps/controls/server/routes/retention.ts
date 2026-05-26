@@ -62,7 +62,8 @@ async function handleRetentionRun(context: ProtectedRouteContext): Promise<void>
 }
 
 function optionalNullableNumber(value: unknown): number | null | undefined {
-  if (value === null || value === undefined) return value;
+  if (value === null) return null;
+  if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isFinite(value)) throw new HttpError(400, "Invalid retainDays");
   return value;
 }
