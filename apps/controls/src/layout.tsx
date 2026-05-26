@@ -44,9 +44,9 @@ export function AppLayout({
       </aside>
       <main className="content">
         <div className="hud-strip">
-          <span>NODE: AT_SYS_CTRL_V01</span>
-          <span>AUTH_STATUS: ESTABLISHED</span>
-          <span className="hud-pulse">● ONLINE</span>
+          <span>AGENCY TERMINAL // OPERATOR CONSOLE</span>
+          <span>DISCORD-NATIVE WORKFLOW LEDGER</span>
+          <span>CONTROL SURFACE</span>
         </div>
         {children}
       </main>
@@ -59,7 +59,7 @@ export function PageHeader({ title, kicker }: { title: string; kicker?: string }
     <header className="page-header">
       <div className="header-meta">
         {kicker ? <span className="eyebrow">{kicker}</span> : null}
-        <span className="security-stamp">SYS//SECURE_COMM // LEVEL_4</span>
+        <span className="security-stamp">SIG//AGENCY</span>
       </div>
       <h1>{title}</h1>
       <div className="header-rule"></div>
