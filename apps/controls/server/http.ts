@@ -6,6 +6,8 @@ import { getBootstrapIdsForGuild, parseControlsGuilds, resolveControlsGuild } fr
 import { shouldRefreshSessionAuthorization } from "./auth/session-refresh";
 import { handleDatabaseDiagnostics } from "./diagnostics";
 import { logApiError } from "./error-logging";
+import { handleExportsRoute } from "./routes/exports";
+import { handleRetentionRoute } from "./routes/retention";
 import {
   createExpiredSessionCookie,
   createSessionCookie,
@@ -144,6 +146,14 @@ async function routeProtectedApi(
   }
   if (url.pathname === "/api/deployment" || url.pathname === "/api/deployment/register-commands") {
     await handleDeployment(req, res, deps, auth, guildId, url.pathname);
+    return;
+  }
+  if (url.pathname === "/api/retention" || url.pathname.startsWith("/api/retention/")) {
+    await handleRetentionRoute({ req, res, url, deps, auth, guildId });
+    return;
+  }
+  if (url.pathname === "/api/exports" || url.pathname.startsWith("/api/exports/")) {
+    await handleExportsRoute({ req, res, url, deps, auth, guildId });
     return;
   }
   writeJson(res, 404, { error: "Not found" });
