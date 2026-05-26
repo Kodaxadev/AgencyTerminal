@@ -13,12 +13,17 @@ import { db } from "../../../packages/db/src/client";
 import { and, desc, eq, inArray, sql } from "../../../packages/db/src/query";
 import { buildGuildConfigValues, toGuildConfigDto } from "./config-view";
 import { buildOperationalHealthChecks } from "./health-view";
+import { dryRunRetention, listRetentionPolicies, runRetention, saveRetentionPolicy } from "./retention-repository";
 import type {
   AuditLogDto,
   GuildConfigDto,
   HealthCheckDto,
   MetricConfigDto,
   OverviewDto,
+  RetentionDryRunDto,
+  RetentionPolicyDto,
+  RetentionPolicyInput,
+  RetentionRunDto,
   RoleCapabilityMapping,
   RoleMappingDto,
   EvidenceQueueItemDto,
@@ -36,6 +41,10 @@ export interface ControlsRepository {
   deleteRoleMapping(guildId: string, id: string, actorDiscordId: string): Promise<void>;
   listMetrics(guildId: string): Promise<MetricConfigDto[]>;
   createMetricVersion(input: Omit<MetricConfigDto, "id" | "version"> & { guildId: string }, actorDiscordId: string): Promise<MetricConfigDto>;
+  listRetentionPolicies(guildId: string): Promise<RetentionPolicyDto[]>;
+  saveRetentionPolicy(input: RetentionPolicyInput & { guildId: string }, actorDiscordId: string): Promise<RetentionPolicyDto>;
+  dryRunRetention(guildId: string): Promise<RetentionDryRunDto>;
+  runRetention(guildId: string, dryRunToken: string, actorDiscordId: string, confirmation: string): Promise<RetentionRunDto>;
   listEvidenceQueue(guildId: string): Promise<EvidenceQueueItemDto[]>;
   listTickets(guildId: string): Promise<TicketQueueItemDto[]>;
   listAudit(guildId: string): Promise<AuditLogDto[]>;
@@ -54,6 +63,10 @@ export function createControlsRepository(): ControlsRepository {
     deleteRoleMapping,
     listMetrics,
     createMetricVersion,
+    listRetentionPolicies,
+    saveRetentionPolicy,
+    dryRunRetention,
+    runRetention,
     listEvidenceQueue,
     listTickets,
     listAudit,

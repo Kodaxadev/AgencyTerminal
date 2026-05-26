@@ -111,6 +111,68 @@ export interface TicketQueueItemDto {
   createdAt: string;
 }
 
+export type RetentionClass =
+  | "ticket_channel"
+  | "ticket_transcript"
+  | "evidence_record"
+  | "evidence_attachment_copy"
+  | "audit_log"
+  | "score_event"
+  | "score_reversal"
+  | "intel_sensitive"
+  | "contract_terms"
+  | "doctrine_challenge";
+
+export type RetentionAction = "retain" | "archive" | "delete" | "redact";
+export type SensitivityLevel = "public" | "member" | "officer_only" | "director_only";
+
+export interface RetentionPolicyDto {
+  id?: string;
+  guildId: string;
+  class: RetentionClass;
+  retainDays?: number;
+  action: RetentionAction;
+  sensitivity: SensitivityLevel;
+  enabled: boolean;
+  protected: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RetentionPolicyInput {
+  class: RetentionClass | string;
+  retainDays?: number | null;
+  action: RetentionAction | string;
+  sensitivity: SensitivityLevel | string;
+  enabled: boolean;
+  confirmation?: string;
+}
+
+export interface RetentionClassCountDto {
+  class: RetentionClass;
+  action: RetentionAction;
+  eligibleCount: number;
+  protected: boolean;
+}
+
+export interface RetentionDryRunDto {
+  token: string;
+  generatedAt: string;
+  rows: RetentionClassCountDto[];
+  totalEligible: number;
+  destructiveCount: number;
+}
+
+export interface RetentionRunDto {
+  token: string;
+  ranAt: string;
+  executed: boolean;
+  message: string;
+  rows: RetentionClassCountDto[];
+  totalEligible: number;
+  destructiveCount: number;
+}
+
 export interface OverviewDto {
   statusCode: 200 | 206 | 503;
   statusLabel: string;
