@@ -173,6 +173,29 @@ export interface RetentionRunDto {
   destructiveCount: number;
 }
 
+export type ExportType = "ledger" | "agents" | "audit" | "tickets" | "retention";
+
+export interface ExportDescriptorDto {
+  type: ExportType;
+  label: string;
+  sensitivity: SensitivityLevel;
+  requiresConfirmation: boolean;
+}
+
+export interface ExportPayloadDto {
+  type: ExportType;
+  guildId: string;
+  generatedAt: string;
+  sensitivity: SensitivityLevel;
+  recordCount: number;
+  rows: unknown[];
+}
+
+export interface ExportRequestDto {
+  type: ExportType | string;
+  confirmation?: string;
+}
+
 export interface OverviewDto {
   statusCode: 200 | 206 | 503;
   statusLabel: string;
