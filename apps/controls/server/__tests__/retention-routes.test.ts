@@ -14,7 +14,8 @@ describe("controls retention routes", () => {
   });
 
   it("requires typed confirmation before saving a policy", async () => {
-    const repository = makeRepository();
+    const saveRetentionPolicy = vi.fn();
+    const repository = makeRepository({ saveRetentionPolicy });
 
     await expect(handleRetentionRoute(makeContext({
       method: "PATCH",
@@ -23,7 +24,7 @@ describe("controls retention routes", () => {
       repository,
     }))).rejects.toThrow("RETENTION");
 
-    expect(repository.saveRetentionPolicy).not.toHaveBeenCalled();
+    expect(saveRetentionPolicy).not.toHaveBeenCalled();
   });
 });
 
@@ -65,12 +66,13 @@ function makeContext(input: {
   };
 }
 
-function makeRepository() {
+function makeRepository(overrides: Partial<ProtectedRouteContext["deps"]["repository"]> = {}) {
   return {
     listRetentionPolicies: vi.fn(),
     saveRetentionPolicy: vi.fn(),
     dryRunRetention: vi.fn(),
     runRetention: vi.fn(),
+    ...overrides,
   } as unknown as ProtectedRouteContext["deps"]["repository"];
 }
 

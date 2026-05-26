@@ -15,8 +15,13 @@ export const NAVIGATION: NavigationItem[] = [
   { href: "/roles", label: "Roles", capabilities: ["can_manage_config"] },
   { href: "/metrics", label: "Metrics", capabilities: ["can_manage_config"] },
   { href: "/evidence", label: "Evidence", capabilities: ["can_validate_evidence"] },
+  { href: "/evidence/intel", label: "Intel", capabilities: ["can_manage_intel"] },
+  { href: "/contracts", label: "Contracts", capabilities: ["can_manage_contracts"] },
+  { href: "/clearance", label: "Clearance", capabilities: ["can_manage_clearance"] },
   { href: "/tickets", label: "Tickets", capabilities: ["can_view_all_tickets", "can_manage_enlistment"] },
   { href: "/audit", label: "Audit", capabilities: ["can_view_audit", "can_manage_config"] },
+  { href: "/retention", label: "Retention", capabilities: ["can_manage_config"] },
+  { href: "/exports", label: "Exports", capabilities: ["can_manage_config"] },
   { href: "/deployment", label: "Deployment", capabilities: ["can_manage_config"] },
 ];
 

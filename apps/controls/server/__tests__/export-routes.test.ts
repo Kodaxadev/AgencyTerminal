@@ -14,7 +14,15 @@ describe("controls export routes", () => {
   });
 
   it("passes typed confirmation into audit exports", async () => {
-    const repository = makeRepository();
+    const buildExport = vi.fn().mockResolvedValue({
+      type: "audit",
+      guildId: "guild-1",
+      generatedAt: "2026-05-26T15:00:00.000Z",
+      sensitivity: "officer_only",
+      recordCount: 0,
+      rows: [],
+    });
+    const repository = makeRepository({ buildExport });
 
     await handleExportsRoute(makeContext({
       method: "POST",
@@ -23,7 +31,7 @@ describe("controls export routes", () => {
       repository,
     }));
 
-    expect(repository.buildExport).toHaveBeenCalledWith("audit", "guild-1", "actor-1", "EXPORT");
+    expect(buildExport).toHaveBeenCalledWith("audit", "guild-1", "actor-1", "EXPORT");
   });
 });
 
@@ -65,7 +73,7 @@ function makeContext(input: {
   };
 }
 
-function makeRepository() {
+function makeRepository(overrides: Partial<ProtectedRouteContext["deps"]["repository"]> = {}) {
   return {
     listAvailableExports: vi.fn().mockResolvedValue([]),
     buildExport: vi.fn().mockResolvedValue({
@@ -76,6 +84,7 @@ function makeRepository() {
       recordCount: 0,
       rows: [],
     }),
+    ...overrides,
   } as unknown as ProtectedRouteContext["deps"]["repository"];
 }
 

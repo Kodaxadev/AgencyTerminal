@@ -15,12 +15,12 @@ import {
   requireExportConfirmation,
 } from "./export-service";
 
-export async function listAvailableExports(): Promise<ExportDescriptorDto[]> {
-  return listExportDescriptors();
+export function listAvailableExports(): Promise<ExportDescriptorDto[]> {
+  return Promise.resolve(listExportDescriptors());
 }
 
 export async function buildExport(
-  typeInput: ExportType | string,
+  typeInput: string,
   guildId: string,
   actorDiscordId: string,
   confirmation?: string,

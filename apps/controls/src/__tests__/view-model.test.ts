@@ -7,7 +7,14 @@ describe("controls view model", () => {
       "/",
       "/evidence",
     ]);
-    expect(visibleNavigation(["can_manage_config"]).map((item) => item.href)).toContain("/deployment");
+    expect(visibleNavigation(["can_manage_config"]).map((item) => item.href)).toEqual(expect.arrayContaining([
+      "/deployment",
+      "/retention",
+      "/exports",
+    ]));
+    expect(visibleNavigation(["can_manage_intel"]).map((item) => item.href)).toContain("/evidence/intel");
+    expect(visibleNavigation(["can_manage_contracts"]).map((item) => item.href)).toContain("/contracts");
+    expect(visibleNavigation(["can_manage_clearance"]).map((item) => item.href)).toContain("/clearance");
   });
 
   it("maps service status codes to stable visual tones", () => {

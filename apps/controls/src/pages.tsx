@@ -79,7 +79,7 @@ export function EvidencePage() {
       <table>
         <thead><tr><th>ID</th><th>Title</th><th>Metric</th><th>Status</th><th>Sensitivity</th><th>Created</th></tr></thead>
         <tbody>
-          {(data ?? []).map((row) => (
+          {data?.length ? data.map((row) => (
             <tr key={row.id}>
               <td>{row.shortId ?? row.id}</td>
               <td>{row.title}</td>
@@ -88,7 +88,9 @@ export function EvidencePage() {
               <td>{row.sensitivity}</td>
               <td>{new Date(row.createdAt).toLocaleDateString()}</td>
             </tr>
-          ))}
+          )) : !loading && !error ? (
+            <tr><td className="empty-cell" colSpan={6}>No evidence records found</td></tr>
+          ) : null}
         </tbody>
       </table>
     </section>
@@ -104,7 +106,7 @@ export function TicketsPage() {
       <table>
         <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Priority</th><th>Title</th><th>Channel</th></tr></thead>
         <tbody>
-          {(data ?? []).map((row) => (
+          {data?.length ? data.map((row) => (
             <tr key={row.id}>
               <td>{row.shortId ?? row.id}</td>
               <td>{row.type}</td>
@@ -113,7 +115,9 @@ export function TicketsPage() {
               <td>{row.title}</td>
               <td>{row.channelId}</td>
             </tr>
-          ))}
+          )) : !loading && !error ? (
+            <tr><td className="empty-cell" colSpan={6}>No tickets found</td></tr>
+          ) : null}
         </tbody>
       </table>
     </section>
@@ -129,7 +133,7 @@ export function AuditPage() {
       <table>
         <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Subject</th><th>Sensitivity</th></tr></thead>
         <tbody>
-          {(data ?? []).map((row) => (
+          {data?.length ? data.map((row) => (
             <tr key={row.id}>
               <td>{new Date(row.createdAt).toLocaleString()}</td>
               <td>{row.actorDiscordId ?? "system"}</td>
@@ -137,7 +141,9 @@ export function AuditPage() {
               <td>{row.subjectType}:{row.subjectId}</td>
               <td>{row.sensitivity}</td>
             </tr>
-          ))}
+          )) : !loading && !error ? (
+            <tr><td className="empty-cell" colSpan={5}>No audit entries found</td></tr>
+          ) : null}
         </tbody>
       </table>
     </section>

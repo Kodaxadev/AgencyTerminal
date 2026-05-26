@@ -21,7 +21,6 @@ import type {
   Capability,
   ExportDescriptorDto,
   ExportPayloadDto,
-  ExportType,
   GuildConfigDto,
   HealthCheckDto,
   MetricConfigDto,
@@ -52,7 +51,7 @@ export interface ControlsRepository {
   dryRunRetention(guildId: string): Promise<RetentionDryRunDto>;
   runRetention(guildId: string, dryRunToken: string, actorDiscordId: string, confirmation: string): Promise<RetentionRunDto>;
   listAvailableExports(): Promise<ExportDescriptorDto[]>;
-  buildExport(type: ExportType | string, guildId: string, actorDiscordId: string, confirmation?: string): Promise<ExportPayloadDto>;
+  buildExport(type: string, guildId: string, actorDiscordId: string, confirmation?: string): Promise<ExportPayloadDto>;
   listIntelEvidence(guildId: string, capabilities: Capability[]): Promise<EvidenceQueueItemDto[]>;
   listContractTickets(guildId: string, capabilities: Capability[]): Promise<TicketQueueItemDto[]>;
   listClearanceTickets(guildId: string, capabilities: Capability[]): Promise<TicketQueueItemDto[]>;

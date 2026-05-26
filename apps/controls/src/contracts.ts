@@ -140,10 +140,10 @@ export interface RetentionPolicyDto {
 }
 
 export interface RetentionPolicyInput {
-  class: RetentionClass | string;
+  class: string;
   retainDays?: number | null;
-  action: RetentionAction | string;
-  sensitivity: SensitivityLevel | string;
+  action: string;
+  sensitivity: string;
   enabled: boolean;
   confirmation?: string;
 }
@@ -192,7 +192,7 @@ export interface ExportPayloadDto {
 }
 
 export interface ExportRequestDto {
-  type: ExportType | string;
+  type: string;
   confirmation?: string;
 }
 

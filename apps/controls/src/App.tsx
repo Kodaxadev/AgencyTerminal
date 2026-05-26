@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { getAuthStatus, logout } from "./api";
 import type { AuthStatus } from "./contracts";
 import { AppLayout, DataState } from "./layout";
+import { ClearancePage, ContractsPage, IntelEvidencePage } from "./domain-pages";
+import { ExportsPage, RetentionPage } from "./governance-pages";
 import {
   AuditPage,
   DeploymentPage,
@@ -57,8 +59,13 @@ export function ControlsApp() {
         <Route path="/roles" element={<RolesPage />} />
         <Route path="/metrics" element={<MetricsPage />} />
         <Route path="/evidence" element={<EvidencePage />} />
+        <Route path="/evidence/intel" element={<IntelEvidencePage />} />
+        <Route path="/contracts" element={<ContractsPage />} />
+        <Route path="/clearance" element={<ClearancePage />} />
         <Route path="/tickets" element={<TicketsPage />} />
         <Route path="/audit" element={<AuditPage />} />
+        <Route path="/retention" element={<RetentionPage />} />
+        <Route path="/exports" element={<ExportsPage />} />
         <Route path="/deployment" element={<DeploymentPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
