@@ -57,6 +57,7 @@ export function toConfigInput(
   return {
     guildId,
     name: optionalString(body.name) ?? current.name,
+    adminChannelId: optionalString(body.adminChannelId),
     auditChannelId: optionalString(body.auditChannelId),
     opsQueueChannelId: optionalString(body.opsQueueChannelId),
     archiveChannelId: optionalString(body.archiveChannelId),
