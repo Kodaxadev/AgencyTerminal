@@ -117,12 +117,13 @@ export function validateScoreCorrection(input: {
  * from a list of score events.
  */
 export function computeNetScore(
-  events: Pick<ScoreEvent, "metricCategory" | "pointsApproved" | "status">[],
+  events: Pick<ScoreEvent, "agentDiscordId" | "metricCategory" | "pointsApproved" | "status">[],
   agentDiscordId: string,
   category?: string
 ): number {
   let total = 0;
   for (const event of events) {
+    if (event.agentDiscordId !== agentDiscordId) continue;
     if (event.status === "reversed") continue;
     if (category && event.metricCategory !== category) continue;
     total += event.pointsApproved;

@@ -22,7 +22,7 @@ import {
   getCapabilitiesForRoles,
   submitEvidence,
 } from "@agency-terminal/db";
-import type { TicketType } from "@agency-terminal/db";
+import type { Capability, TicketType } from "@agency-terminal/db";
 import {
   canHandleOverride,
   canHandleReview,
@@ -63,6 +63,11 @@ async function handleTicketCommand(interaction: ChatInputCommandInteraction): Pr
   const config = getTicketConfig(interaction, subcommand);
   if (!config) {
     await interaction.editReply(`Unknown ticket type: ${subcommand}`);
+    return;
+  }
+  const requiredCapability = getTicketCapability(subcommand);
+  if (requiredCapability && !await userHasCapability(interaction, requiredCapability)) {
+    await interaction.editReply(`You are not authorized to create ${subcommand} tickets.`);
     return;
   }
 
@@ -288,6 +293,15 @@ async function userCanOverride(interaction: ChatInputCommandInteraction): Promis
   return canHandleOverride(capabilities);
 }
 
+async function userHasCapability(
+  interaction: ChatInputCommandInteraction,
+  capability: Capability,
+): Promise<boolean> {
+  if (!interaction.guildId) return false;
+  const capabilities = await getCapabilitiesForRoles(interaction.guildId, getMemberRoleIds(interaction.member));
+  return capabilities.includes(capability);
+}
+
 function getMemberRoleIds(member: ButtonInteraction["member"]): string[] {
   const roles = (member as GuildMember | null)?.roles;
   if (!roles) return [];
@@ -332,4 +346,14 @@ function toTicketType(subcommand: string): TicketType {
     return subcommand;
   }
   throw new Error(`Unsupported ticket type: ${subcommand}`);
+}
+
+function getTicketCapability(subcommand: string): Capability | null {
+  const capabilityMap: Record<string, Capability> = {
+    enlistment: "can_manage_enlistment",
+    contract: "can_manage_contracts",
+    intel: "can_manage_intel",
+    clearance: "can_manage_clearance",
+  };
+  return capabilityMap[subcommand] ?? null;
 }

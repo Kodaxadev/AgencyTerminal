@@ -2,7 +2,7 @@
   "name": "@agency-terminal/discord-ui",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "type": "commonjs",
   "main": "src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit"

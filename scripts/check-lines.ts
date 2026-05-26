@@ -6,7 +6,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const MAX_LINES = 400;
-const ROOTS = ["apps", "packages", "scripts"];
+const ROOTS = ["api", "apps", "packages", "scripts"];
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

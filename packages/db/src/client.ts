@@ -14,6 +14,7 @@ const pool = postgres(DATABASE_URL, {
   max: maxConnections,
   idle_timeout: 20,
   connect_timeout: 10,
+  prepare: false,
 });
 
 export const db = drizzle(pool, { schema });

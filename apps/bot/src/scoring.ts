@@ -1,7 +1,7 @@
 import { ButtonInteraction } from "discord.js";
 import { calculateScoreCredits } from "@agency-terminal/core";
-import type { MetricCategory } from "@agency-terminal/core";
-import { creditScore, writeAuditLog } from "@agency-terminal/db";
+import type { MetricCategory, MetricConfig } from "@agency-terminal/core";
+import { creditScore, getLatestMetricConfig, writeAuditLog } from "@agency-terminal/db";
 import { createScoreCreditEmbed } from "@agency-terminal/discord-ui";
 
 /**
@@ -15,13 +15,8 @@ export async function processScoreCredits(
   agentDiscordId: string,
   metricCategory: string,
 ): Promise<void> {
-  const metricConfig = {
-    category: metricCategory as MetricCategory,
-    basePoints: 10,
-    visibility: "public" as const,
-    enabled: true,
-    version: 1,
-  };
+  const metricConfig = await getLatestMetricConfig(guildId, metricCategory) ??
+    getFallbackMetricConfig(metricCategory);
 
   const subjects = [
     {
@@ -67,4 +62,14 @@ export async function processScoreCredits(
       ephemeral: false,
     });
   }
+}
+
+function getFallbackMetricConfig(metricCategory: string): MetricConfig {
+  return {
+    category: metricCategory as MetricCategory,
+    basePoints: 10,
+    visibility: "public" as const,
+    enabled: true,
+    version: 1,
+  };
 }

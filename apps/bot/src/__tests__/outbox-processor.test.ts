@@ -9,6 +9,7 @@ const dbMocks = vi.hoisted(() => ({
   markOutboxFailed: vi.fn(),
   markOutboxSent: vi.fn(),
   persistTicketChannelId: vi.fn(),
+  recordWorkerHeartbeat: vi.fn(),
   recoverAbandonedOutboxClaims: vi.fn(),
   writeAuditLog: vi.fn(),
 }));
@@ -21,6 +22,7 @@ describe("outbox processor channel fetch reconciliation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMocks.findStaleEvidence.mockResolvedValue([]);
+    dbMocks.recordWorkerHeartbeat.mockResolvedValue(undefined);
     dbMocks.recoverAbandonedOutboxClaims.mockResolvedValue({ recovered: 0, leaseMs: 300_000 });
     process.env = { ...originalEnv };
   });
@@ -98,6 +100,7 @@ describe("evidence_review_projection outbox worker", () => {
     vi.clearAllMocks();
     dbMocks.findStaleEvidence.mockResolvedValue([]);
     dbMocks.getRoleIdsForCapabilities.mockResolvedValue(["reviewer-role-1"]);
+    dbMocks.recordWorkerHeartbeat.mockResolvedValue(undefined);
     dbMocks.recoverAbandonedOutboxClaims.mockResolvedValue({ recovered: 0, leaseMs: 300_000 });
     process.env = { ...originalEnv, AGENCY_OPS_QUEUE_CHANNEL_ID: "ops-channel-1" };
   });
@@ -390,6 +393,29 @@ describe("evidence_review_projection outbox worker", () => {
 
     expect(dbMocks.markOutboxFailed).toHaveBeenCalledWith("outbox-ev-1", expect.stringMatching(/Discord API 500/i));
     expect(dbMocks.markOutboxSent).not.toHaveBeenCalled();
+  });
+
+  it("records worker heartbeat after each processing pass", async () => {
+    dbMocks.claimDueOutbox.mockResolvedValue([]);
+    const client = makeClient({ cachedChannels: [], fetchedChannels: [], create: vi.fn() });
+
+    await processOutbox(client, "guild-1", 1);
+
+    const calls = dbMocks.recordWorkerHeartbeat.mock.calls as Array<[{
+      workerName: string;
+      guildId: string;
+      metadata: { processed: number; errors: number; staleAlerts: number };
+    }]>;
+    const heartbeat = calls[0]?.[0];
+    expect(heartbeat).toMatchObject({
+      workerName: "outbox_processor",
+      guildId: "guild-1",
+    });
+    expect(heartbeat?.metadata).toMatchObject({
+      processed: 0,
+      errors: 0,
+      staleAlerts: 0,
+    });
   });
 });
 

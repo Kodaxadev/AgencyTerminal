@@ -16,5 +16,13 @@
     "incremental": true,
     "composite": true
   },
-  "exclude": ["node_modules", "dist", "web", "apps/controls"]
+  "include": [
+    "api/**/*.ts",
+    "apps/bot/src/**/*.ts",
+    "apps/controls/server/**/*.ts",
+    "apps/controls/src/contracts.ts",
+    "packages/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist", "web"]
 }

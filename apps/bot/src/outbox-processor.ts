@@ -12,6 +12,7 @@ import {
   markOutboxFailed,
   markOutboxSent,
   persistTicketChannelId,
+  recordWorkerHeartbeat,
   recoverAbandonedOutboxClaims,
   writeAuditLog,
 } from "@agency-terminal/db";
@@ -103,7 +104,29 @@ export async function processOutbox(
     );
   }
 
-  return { processed, errors, staleAlerts };
+  const result = { processed, errors, staleAlerts };
+  try {
+    await recordWorkerHeartbeat({
+      workerName: "outbox_processor",
+      guildId,
+      metadata: {
+        processed,
+        errors,
+        staleAlerts,
+        recovered: recovered.recovered,
+      },
+    });
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error(JSON.stringify({
+      level: "error",
+      event: "worker_heartbeat_write_failed",
+      guildId,
+      error: { name: error.name, message: error.message },
+    }));
+  }
+
+  return result;
 }
 
 async function handleTicketCreatedOutbox(

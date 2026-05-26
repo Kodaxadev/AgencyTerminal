@@ -2,8 +2,17 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"]
   },
-  "include": ["src", "vite.config.ts"],
+  "include": [
+    "src",
+    "server",
+    "vite.config.ts",
+    "../../packages/db/src/client.ts",
+    "../../packages/db/src/query.ts",
+    "../../packages/db/schema/**/*.ts",
+    "../../packages/discord-ui/src/slash-commands.ts"
+  ],
   "exclude": ["../../node_modules", "../../dist"]
 }

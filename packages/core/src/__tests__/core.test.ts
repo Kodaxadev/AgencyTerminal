@@ -245,10 +245,10 @@ describe("validateScoreCorrection", () => {
 
 describe("computeNetScore", () => {
   const events = [
-    { metricCategory: "pvp_kill_value" as const, pointsApproved: 10, status: "credited" as const },
-    { metricCategory: "pvp_kill_value" as const, pointsApproved: 10, status: "credited" as const },
-    { metricCategory: "pvp_kill_value" as const, pointsApproved: 10, status: "reversed" as const },
-    { metricCategory: "fleet_participation" as const, pointsApproved: 5, status: "credited" as const },
+    { agentDiscordId: "user-1", metricCategory: "pvp_kill_value" as const, pointsApproved: 10, status: "credited" as const },
+    { agentDiscordId: "user-1", metricCategory: "pvp_kill_value" as const, pointsApproved: 10, status: "credited" as const },
+    { agentDiscordId: "user-1", metricCategory: "pvp_kill_value" as const, pointsApproved: 10, status: "reversed" as const },
+    { agentDiscordId: "user-1", metricCategory: "fleet_participation" as const, pointsApproved: 5, status: "credited" as const },
   ];
 
   it("excludes reversed events", () => {
@@ -259,5 +259,16 @@ describe("computeNetScore", () => {
   it("filters by category", () => {
     const total = computeNetScore(events, "user-1", "pvp_kill_value");
     expect(total).toBe(20);
+  });
+
+  it("filters by agent", () => {
+    const mixedAgentEvents = [
+      { agentDiscordId: "user-1", metricCategory: "pvp_kill_value" as const, pointsApproved: 10, status: "credited" as const },
+      { agentDiscordId: "user-2", metricCategory: "pvp_kill_value" as const, pointsApproved: 99, status: "credited" as const },
+      { agentDiscordId: "user-1", metricCategory: "fleet_participation" as const, pointsApproved: 5, status: "credited" as const },
+    ];
+
+    expect(computeNetScore(mixedAgentEvents, "user-1")).toBe(15);
+    expect(computeNetScore(mixedAgentEvents, "user-2")).toBe(99);
   });
 });

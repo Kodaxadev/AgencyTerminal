@@ -2,10 +2,10 @@
   "name": "agency-terminal",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.0.0",
+  "packageManager": "pnpm@10.28.2",
   "scripts": {
     "typecheck": "tsc --noEmit --project tsconfig.base.json",
-    "lint": "eslint apps packages --ext .ts,.tsx --config packages/config/eslint-config.js",
+    "lint": "eslint api apps packages --ext .ts,.tsx --config packages/config/eslint-config.js",
     "test:run": "vitest run",
     "build": "pnpm -r build",
     "check:lines": "tsx scripts/check-lines.ts",
@@ -14,7 +14,14 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "dependencies": {
+    "@agency-terminal/db": "workspace:*",
+    "@agency-terminal/discord-ui": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9"
+  },
   "devDependencies": {
+    "@types/node": "25.9.1",
     "typescript": "5.9.3",
     "tsx": "4.22.3",
     "eslint": "8.57.1",

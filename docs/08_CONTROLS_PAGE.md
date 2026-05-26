@@ -38,12 +38,36 @@ contract negotiation UI, Signal Vault replacement, FrontierWarden replacement
 Recommended v1:
 ```text
 Discord OAuth2
-→ check user is in configured guild
+→ check user is in one configured controls guild
 → check mapped capability
 → allow controls page access
 ```
 
 No public account creation. MVP alternatives: single operator password + IP allowlist (fastest private prototype), or Vercel deployment protection + app-level session.
+
+Required controls environment:
+```text
+CONTROLS_ENABLED=true
+CONTROLS_SESSION_SECRET=<strong random secret>
+CONTROLS_PUBLIC_BASE_URL=<public controls origin>
+DISCORD_CLIENT_SECRET=<Discord OAuth2 client secret>
+DISCORD_REDIRECT_URI=<optional explicit callback URI>
+```
+
+Single-guild legacy mode uses `DISCORD_GUILD_ID` and
+`CONTROLS_BOOTSTRAP_DISCORD_IDS`.
+
+Dual-guild mode is explicit:
+```text
+CONTROLS_GUILDS=dev:<kodaxa dev guild id>,agency:<agency guild id>
+CONTROLS_BOOTSTRAP_DISCORD_IDS_DEV=<developer discord user id>
+CONTROLS_BOOTSTRAP_DISCORD_IDS_AGENCY=<leader discord user id>
+```
+
+In dual-guild mode, legacy `CONTROLS_BOOTSTRAP_DISCORD_IDS` is ignored so a dev
+bootstrap ID cannot accidentally grant Agency authority. The session stores the
+resolved guild ID, and all protected controls actions use that session guild.
+The bot token and OAuth client secret remain server-side only.
 
 ## Page map
 
@@ -103,7 +127,7 @@ Display:
 Bot status, Discord connection, Database connection
 Last command seen, Last background job run
 Open tickets, Stale evidence count, Pending quorum count
-Failed Discord projection count
+Discord outbox pending/dead count
 Current guild, Configured channels
 ```
 
@@ -113,11 +137,15 @@ Status cards: `CODE 200 // OPERATIONAL`, `CODE 206 // DEGRADED`, `CODE 503 // AC
 
 Each check has: `id, label, status ("ok" | "warn" | "fail"), lastCheckedAt, detail?, remediation?`
 
-Checks: DISCORD_TOKEN present, DISCORD_CLIENT_ID present, DISCORD_GUILD_ID present, DATABASE_URL present, SUPABASE storage configured, Bot can read guild, Bot can post to audit channel, Bot can post to ops queue, Required DB migrations applied, Background worker heartbeat fresh.
+Checks: DISCORD_TOKEN present, DISCORD_CLIENT_ID present, DATABASE_URL present, configured controls guild present, SUPABASE storage configured, Bot can read guild, Bot can post to audit channel, Bot can post to ops queue, Required DB migrations applied, Background worker heartbeat fresh.
 
 ## Config: /controls/config
 
-Manage single-guild settings: guild id, audit channel id, ops queue channel id, archive channel id, doctrine changes channel id, stale review hours, ticket archive behavior, transcript storage enabled. All changes write to `audit_log`.
+Manage single-guild settings: guild id, admin channel id, audit channel id, ops queue channel id, archive channel id, doctrine changes channel id, stale review hours, ticket archive behavior, transcript storage enabled. All changes write to `audit_log`.
+
+`AGENCY_ALLOW_OPS_QUEUE_SETUP` is shown as a health/policy signal, not a production web toggle. It should remain disabled outside development; a future repair action must be explicit, audited, and scoped to the selected guild.
+
+`DISCORD_ENABLE_GUILD_MEMBERS_INTENT` is opt-in. The Agency leader must enable the privileged Guild Members intent in the Discord Developer Portal before join/enlistment automation is turned on.
 
 ## Roles: /controls/roles
 

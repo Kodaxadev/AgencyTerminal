@@ -1,7 +1,8 @@
-import { Client, GatewayIntentBits } from "discord.js";
+import { Client } from "discord.js";
 import { closeDbPool } from "@agency-terminal/db";
 import { registerCommands } from "./commands";
 import { handleInteraction } from "./handlers";
+import { buildGatewayIntents } from "./intents";
 import { startOutboxLoop } from "./outbox-loop";
 import { installRuntimeLifecycle, type RuntimeLifecycleControls } from "./runtime-lifecycle";
 
@@ -74,11 +75,7 @@ async function main() {
   validateEnv();
 
   const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-    ],
+    intents: buildGatewayIntents(process.env),
   });
 
   client.on("interactionCreate", (interaction) => {

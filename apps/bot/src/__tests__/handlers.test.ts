@@ -3,6 +3,7 @@ import { handleInteraction } from "../handlers";
 
 const dbMocks = vi.hoisted(() => ({
   addReview: vi.fn(),
+  createTicket: vi.fn(),
   directorOverrideEvidence: vi.fn(),
   getCapabilitiesForRoles: vi.fn(),
   submitEvidence: vi.fn(),
@@ -10,7 +11,7 @@ const dbMocks = vi.hoisted(() => ({
 
 vi.mock("@agency-terminal/db", () => ({
   addReview: dbMocks.addReview,
-  createTicket: vi.fn(),
+  createTicket: dbMocks.createTicket,
   directorOverrideEvidence: dbMocks.directorOverrideEvidence,
   getCapabilitiesForRoles: dbMocks.getCapabilitiesForRoles,
   submitEvidence: dbMocks.submitEvidence,
@@ -30,6 +31,7 @@ describe("interaction handler safety", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMocks.getCapabilitiesForRoles.mockResolvedValue(["can_override_quorum"]);
+    dbMocks.createTicket.mockResolvedValue({ id: "ticket-1", shortId: "TKT-0001" });
   });
 
   // ── Director override ────────────────────────────────────────────────────
@@ -165,6 +167,36 @@ describe("interaction handler safety", () => {
     const editReplyCalls = interaction.editReply.mock.calls as Array<[{ content?: string }]>;
     expect(editReplyCalls.some(([reply]) => reply.content?.includes("queued for private review"))).toBe(true);
   });
+
+  // -- Ticket command capability gates ----------------------------------------------------
+
+  it.each([
+    ["enlistment", "can_manage_enlistment"],
+    ["contract", "can_manage_contracts"],
+    ["intel", "can_manage_intel"],
+    ["clearance", "can_manage_clearance"],
+  ])("denies /ticket %s without %s", async (subcommand) => {
+    dbMocks.getCapabilitiesForRoles.mockResolvedValueOnce([]);
+    const interaction = makeTicketInteraction(subcommand);
+
+    await handleInteraction(interaction as never);
+
+    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringMatching(/not authorized/i));
+    expect(dbMocks.createTicket).not.toHaveBeenCalled();
+  });
+
+  it("allows /ticket contract with can_manage_contracts", async () => {
+    dbMocks.getCapabilitiesForRoles.mockResolvedValueOnce(["can_manage_contracts"]);
+    const interaction = makeTicketInteraction("contract");
+
+    await handleInteraction(interaction as never);
+
+    expect(dbMocks.createTicket).toHaveBeenCalledWith(expect.objectContaining({
+      guildId: "guild-1",
+      type: "contract",
+    }), expect.stringContaining("ticket:create:guild-1"));
+  });
 });
 
 function makeDirectorOverrideInteraction() {
@@ -223,6 +255,32 @@ function makeEvidenceSubmitInteraction(metric = "technical_development_output") 
     deferReply: vi.fn().mockResolvedValue(undefined),
     editReply: vi.fn().mockResolvedValue(undefined),
     followUp: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function makeTicketInteraction(subcommand: string) {
+  return {
+    isChatInputCommand: () => true,
+    isButton: () => false,
+    isModalSubmit: () => false,
+    commandName: "ticket",
+    id: `interaction-${subcommand}`,
+    guildId: "guild-1",
+    user: { id: "requester-1" },
+    member: { roles: { cache: new Map([["role-1", {}]]) } },
+    options: {
+      getSubcommand: () => subcommand,
+      getString: (name: string) => {
+        const values: Record<string, string> = {
+          title: "Contract Work",
+          target: "Target One",
+          level: "Officer",
+        };
+        return values[name] ?? null;
+      },
+    },
+    deferReply: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue(undefined),
   };
 }
 

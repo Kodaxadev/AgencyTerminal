@@ -131,6 +131,7 @@ Record environment status without printing secret values.
 | Classification | Variables | Gate treatment |
 | --- | --- | --- |
 | Current startup-required by executable bot runtime | `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`, `DATABASE_URL` | Required for Track A and Track B execution. |
+| Controls page runtime and OAuth | `CONTROLS_SESSION_SECRET`, `CONTROLS_BOOTSTRAP_DISCORD_IDS`, `DISCORD_CLIENT_SECRET`, `CONTROLS_PUBLIC_BASE_URL` or `DISCORD_REDIRECT_URI` | Required when controls page is enabled. Secret values must not be printed. |
 | Current security-policy required for shadow/production-style runs | `NODE_ENV=production`, `AGENCY_OPS_QUEUE_CHANNEL_ID=<verified private channel ID>`, `AGENCY_ALLOW_OPS_QUEUE_SETUP=false` | Required for Track A and Track B safety. |
 | Conditional or future architecture variables | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AGENCY_ADMIN_CHANNEL_ID`, `AGENCY_AUDIT_CHANNEL_ID` | Do not block Track A merely because an unimplemented integration does not use them. |
 

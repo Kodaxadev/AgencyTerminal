@@ -32,3 +32,6 @@ export type {
 } from "./outbox";
 export { getCapabilitiesForRoles, getRoleIdsForCapabilities } from "./permissions";
 export type { Capability } from "./permissions";
+export { getLatestMetricConfig } from "./metric-config";
+export { recordWorkerHeartbeat } from "./worker-heartbeats";
+export type { RecordWorkerHeartbeatInput } from "./worker-heartbeats";

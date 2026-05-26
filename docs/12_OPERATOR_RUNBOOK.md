@@ -10,6 +10,7 @@
 - Configure role mappings.
 - Configure a private ops queue channel and set `AGENCY_OPS_QUEUE_CHANNEL_ID`.
 - Keep `AGENCY_ALLOW_OPS_QUEUE_SETUP=false` for shadow and production.
+- Keep `DISCORD_ENABLE_GUILD_MEMBERS_INTENT=false` until the Agency leader enables the privileged Guild Members intent in the Discord Developer Portal.
 - Configure audit channel.
 - Configure metric point table.
 - Configure retention policies.

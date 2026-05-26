@@ -16,6 +16,8 @@ import type {
   EvidenceSourceType,
 } from "@agency-terminal/core";
 
+export { commandNames, commands, registerCommands } from "./slash-commands";
+
 // --- Colors ---
 
 export function statusColor(status: HealthCheckStatus): number {
