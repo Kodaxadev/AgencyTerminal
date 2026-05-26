@@ -7,6 +7,7 @@ import { shouldRefreshSessionAuthorization } from "./auth/session-refresh";
 import { handleDatabaseDiagnostics } from "./diagnostics";
 import { logApiError } from "./error-logging";
 import { handleExportsRoute } from "./routes/exports";
+import { handleQueueRoute } from "./routes/queues";
 import { handleRetentionRoute } from "./routes/retention";
 import {
   createExpiredSessionCookie,
@@ -127,6 +128,10 @@ async function routeProtectedApi(
   }
   if (url.pathname === "/api/metrics") {
     await handleMetrics(req, res, deps, auth, guildId);
+    return;
+  }
+  if (url.pathname === "/api/evidence/intel" || url.pathname === "/api/contracts" || url.pathname === "/api/clearance") {
+    await handleQueueRoute({ req, res, url, deps, auth, guildId });
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/evidence") {

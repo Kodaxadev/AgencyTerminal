@@ -14,9 +14,11 @@ import { and, desc, eq, inArray, sql } from "../../../packages/db/src/query";
 import { buildGuildConfigValues, toGuildConfigDto } from "./config-view";
 import { buildExport, listAvailableExports } from "./export-repository";
 import { buildOperationalHealthChecks } from "./health-view";
+import { listClearanceTickets, listContractTickets, listIntelEvidence } from "./queue-repository";
 import { dryRunRetention, listRetentionPolicies, runRetention, saveRetentionPolicy } from "./retention-repository";
 import type {
   AuditLogDto,
+  Capability,
   ExportDescriptorDto,
   ExportPayloadDto,
   ExportType,
@@ -51,6 +53,9 @@ export interface ControlsRepository {
   runRetention(guildId: string, dryRunToken: string, actorDiscordId: string, confirmation: string): Promise<RetentionRunDto>;
   listAvailableExports(): Promise<ExportDescriptorDto[]>;
   buildExport(type: ExportType | string, guildId: string, actorDiscordId: string, confirmation?: string): Promise<ExportPayloadDto>;
+  listIntelEvidence(guildId: string, capabilities: Capability[]): Promise<EvidenceQueueItemDto[]>;
+  listContractTickets(guildId: string, capabilities: Capability[]): Promise<TicketQueueItemDto[]>;
+  listClearanceTickets(guildId: string, capabilities: Capability[]): Promise<TicketQueueItemDto[]>;
   listEvidenceQueue(guildId: string): Promise<EvidenceQueueItemDto[]>;
   listTickets(guildId: string): Promise<TicketQueueItemDto[]>;
   listAudit(guildId: string): Promise<AuditLogDto[]>;
@@ -75,6 +80,9 @@ export function createControlsRepository(): ControlsRepository {
     runRetention,
     listAvailableExports,
     buildExport,
+    listIntelEvidence,
+    listContractTickets,
+    listClearanceTickets,
     listEvidenceQueue,
     listTickets,
     listAudit,
