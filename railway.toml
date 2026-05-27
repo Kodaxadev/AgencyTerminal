@@ -1,0 +1,21 @@
+# Railway deploy recipe for the agency-terminal-bot worker.
+# Mirrors the live service config so a redeploy from this file is a no-op.
+# See https://docs.railway.com/reference/config-as-code
+
+[build]
+builder = "RAILPACK"
+buildCommand = "pnpm --filter @agency-terminal/bot build"
+watchPatterns = [
+  "/apps/bot/**",
+  "/packages/**",
+  "/package.json",
+  "/pnpm-lock.yaml",
+  "/pnpm-workspace.yaml",
+  "/tsconfig.base.json",
+]
+
+[deploy]
+startCommand = "pnpm --filter @agency-terminal/bot start"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+numReplicas = 1
