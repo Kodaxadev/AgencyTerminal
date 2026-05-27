@@ -180,6 +180,7 @@ export interface ExportDescriptorDto {
   label: string;
   sensitivity: SensitivityLevel;
   requiresConfirmation: boolean;
+  requiredCapabilities: Capability[];
 }
 
 export interface ExportPayloadDto {

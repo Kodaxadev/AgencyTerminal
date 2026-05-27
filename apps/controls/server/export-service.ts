@@ -1,4 +1,5 @@
 import type {
+  Capability,
   ExportDescriptorDto,
   ExportPayloadDto,
   ExportType,
@@ -6,11 +7,41 @@ import type {
 } from "../src/contracts";
 
 const EXPORT_DESCRIPTORS: ExportDescriptorDto[] = [
-  { type: "ledger", label: "Ledger export", sensitivity: "officer_only", requiresConfirmation: true },
-  { type: "agents", label: "Agent export", sensitivity: "officer_only", requiresConfirmation: false },
-  { type: "audit", label: "Audit export", sensitivity: "officer_only", requiresConfirmation: true },
-  { type: "tickets", label: "Ticket export", sensitivity: "officer_only", requiresConfirmation: false },
-  { type: "retention", label: "Retention report", sensitivity: "officer_only", requiresConfirmation: false },
+  {
+    type: "ledger",
+    label: "Ledger export",
+    sensitivity: "director_only",
+    requiresConfirmation: true,
+    requiredCapabilities: ["can_view_audit", "can_validate_evidence", "can_manage_config"],
+  },
+  {
+    type: "agents",
+    label: "Agent export",
+    sensitivity: "officer_only",
+    requiresConfirmation: false,
+    requiredCapabilities: ["can_view_audit", "can_manage_config"],
+  },
+  {
+    type: "audit",
+    label: "Audit export",
+    sensitivity: "director_only",
+    requiresConfirmation: true,
+    requiredCapabilities: ["can_view_audit", "can_manage_config"],
+  },
+  {
+    type: "tickets",
+    label: "Ticket export",
+    sensitivity: "director_only",
+    requiresConfirmation: false,
+    requiredCapabilities: ["can_view_all_tickets", "can_manage_config"],
+  },
+  {
+    type: "retention",
+    label: "Retention report",
+    sensitivity: "officer_only",
+    requiresConfirmation: false,
+    requiredCapabilities: ["can_manage_config"],
+  },
 ];
 const REDACTED = "[REDACTED]";
 const REDACTED_FIELDS = new Set([
@@ -47,7 +78,23 @@ const REDACTED_FIELDS = new Set([
 ]);
 
 export function listExportDescriptors(): ExportDescriptorDto[] {
-  return EXPORT_DESCRIPTORS.map((descriptor) => ({ ...descriptor }));
+  return EXPORT_DESCRIPTORS.map((descriptor) => ({
+    ...descriptor,
+    requiredCapabilities: [...descriptor.requiredCapabilities],
+  }));
+}
+
+export function listAuthorizedExportDescriptors(capabilities: Capability[]): ExportDescriptorDto[] {
+  return listExportDescriptors().filter((descriptor) => (
+    descriptor.requiredCapabilities.some((capability) => capabilities.includes(capability))
+  ));
+}
+
+export function requireExportCapability(type: ExportType, capabilities: Capability[]): void {
+  const descriptor = getExportDescriptor(type);
+  if (!descriptor.requiredCapabilities.some((capability) => capabilities.includes(capability))) {
+    throw new Error("Missing required controls capability");
+  }
 }
 
 export function normalizeExportType(value: unknown): ExportType {
@@ -81,7 +128,11 @@ export function buildExportPayload(
   };
 }
 
-function getExportDescriptor(type: ExportType): { sensitivity: SensitivityLevel; requiresConfirmation: boolean } {
+function getExportDescriptor(type: ExportType): {
+  sensitivity: SensitivityLevel;
+  requiresConfirmation: boolean;
+  requiredCapabilities: Capability[];
+} {
   const descriptor = EXPORT_DESCRIPTORS.find((item) => item.type === type);
   if (!descriptor) throw new Error("Invalid export type");
   return descriptor;

@@ -13,12 +13,12 @@ describe("controls export routes", () => {
     }))).rejects.toThrow("Missing required controls capability");
   });
 
-  it("passes typed confirmation into audit exports", async () => {
+  it("passes typed confirmation and capabilities into audit exports", async () => {
     const buildExport = vi.fn().mockResolvedValue({
       type: "audit",
       guildId: "guild-1",
       generatedAt: "2026-05-26T15:00:00.000Z",
-      sensitivity: "officer_only",
+      sensitivity: "director_only",
       recordCount: 0,
       rows: [],
     });
@@ -31,7 +31,34 @@ describe("controls export routes", () => {
       repository,
     }));
 
-    expect(buildExport).toHaveBeenCalledWith("audit", "guild-1", "actor-1", "EXPORT");
+    expect(buildExport).toHaveBeenCalledWith("audit", "guild-1", "actor-1", ["can_manage_config"], "EXPORT");
+  });
+
+  it("translates missing per-type capability errors into a 403", async () => {
+    const buildExport = vi.fn().mockRejectedValue(new Error("Missing required controls capability"));
+    const repository = makeRepository({ buildExport });
+
+    await expect(handleExportsRoute(makeContext({
+      method: "POST",
+      pathname: "/api/exports/audit",
+      body: { confirmation: "EXPORT" },
+      capabilities: ["can_view_all_tickets"],
+      repository,
+    }))).rejects.toMatchObject({ status: 403, message: "Missing required controls capability" });
+  });
+
+  it("passes session capabilities into the export listing so the response is filtered", async () => {
+    const listAvailableExports = vi.fn().mockResolvedValue([]);
+    const repository = makeRepository({ listAvailableExports });
+
+    await handleExportsRoute(makeContext({
+      method: "GET",
+      pathname: "/api/exports",
+      capabilities: ["can_view_audit"],
+      repository,
+    }));
+
+    expect(listAvailableExports).toHaveBeenCalledWith(["can_view_audit"]);
   });
 });
 

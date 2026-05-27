@@ -53,8 +53,8 @@ export interface ControlsRepository {
   saveRetentionPolicy(input: RetentionPolicyInput & { guildId: string }, actorDiscordId: string): Promise<RetentionPolicyDto>;
   dryRunRetention(guildId: string): Promise<RetentionDryRunDto>;
   runRetention(guildId: string, dryRunToken: string, actorDiscordId: string, confirmation: string): Promise<RetentionRunDto>;
-  listAvailableExports(): Promise<ExportDescriptorDto[]>;
-  buildExport(type: string, guildId: string, actorDiscordId: string, confirmation?: string): Promise<ExportPayloadDto>;
+  listAvailableExports(capabilities: Capability[]): Promise<ExportDescriptorDto[]>;
+  buildExport(type: string, guildId: string, actorDiscordId: string, capabilities: Capability[], confirmation?: string): Promise<ExportPayloadDto>;
   listIntelEvidence(guildId: string, capabilities: Capability[]): Promise<EvidenceQueueItemDto[]>;
   listContractTickets(guildId: string, capabilities: Capability[]): Promise<TicketQueueItemDto[]>;
   listClearanceTickets(guildId: string, capabilities: Capability[]): Promise<TicketQueueItemDto[]>;

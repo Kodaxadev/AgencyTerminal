@@ -40,8 +40,8 @@ const PAGE_REQUIREMENTS: Record<string, Capability[] | "any"> = {
   "/controls/audit": ["can_view_audit", "can_manage_config"],
   "/retention": ["can_manage_config"],
   "/controls/retention": ["can_manage_config"],
-  "/exports": ["can_manage_config"],
-  "/controls/exports": ["can_manage_config"],
+  "/exports": ["can_manage_config", "can_view_audit", "can_view_all_tickets", "can_validate_evidence"],
+  "/controls/exports": ["can_manage_config", "can_view_audit", "can_view_all_tickets", "can_validate_evidence"],
   "/deployment": ["can_manage_config"],
   "/controls/deployment": ["can_manage_config"],
 };

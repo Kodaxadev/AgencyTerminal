@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildExportPayload,
+  listAuthorizedExportDescriptors,
   listExportDescriptors,
+  requireExportCapability,
   requireExportConfirmation,
 } from "../export-service";
 
@@ -29,10 +31,36 @@ describe("controls export service", () => {
       type: "tickets",
       guildId: "guild-1",
       generatedAt: "2026-05-26T15:30:00.000Z",
-      sensitivity: "officer_only",
+      sensitivity: "director_only",
       recordCount: 1,
       rows: [{ id: "ticket-1" }],
     });
+  });
+
+  it("hides export types the user is not authorized to run", () => {
+    const auditOnly = listAuthorizedExportDescriptors(["can_view_audit"]).map((descriptor) => descriptor.type);
+    expect(auditOnly).toEqual(["ledger", "agents", "audit"]);
+
+    const ticketsOnly = listAuthorizedExportDescriptors(["can_view_all_tickets"]).map((descriptor) => descriptor.type);
+    expect(ticketsOnly).toEqual(["tickets"]);
+
+    const validator = listAuthorizedExportDescriptors(["can_validate_evidence"]).map((descriptor) => descriptor.type);
+    expect(validator).toEqual(["ledger"]);
+
+    const noAccess = listAuthorizedExportDescriptors(["can_manage_intel"]).map((descriptor) => descriptor.type);
+    expect(noAccess).toEqual([]);
+
+    const configAdmin = listAuthorizedExportDescriptors(["can_manage_config"]).map((descriptor) => descriptor.type);
+    expect(configAdmin).toEqual(["ledger", "agents", "audit", "tickets", "retention"]);
+  });
+
+  it("blocks an actor without the per-type capability from invoking that export", () => {
+    expect(() => requireExportCapability("audit", ["can_view_all_tickets"])).toThrow("Missing required controls capability");
+    expect(() => requireExportCapability("tickets", ["can_view_audit"])).toThrow("Missing required controls capability");
+    expect(() => requireExportCapability("retention", ["can_view_audit"])).toThrow("Missing required controls capability");
+    expect(() => requireExportCapability("audit", ["can_view_audit"])).not.toThrow();
+    expect(() => requireExportCapability("tickets", ["can_view_all_tickets"])).not.toThrow();
+    expect(() => requireExportCapability("retention", ["can_manage_config"])).not.toThrow();
   });
 
   it("redacts high-risk row fields from export payloads", () => {
