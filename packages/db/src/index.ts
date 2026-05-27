@@ -14,6 +14,11 @@ export type {
   AddReviewResult,
   CreditScoreInput,
 } from "./evidence";
+export { getEvidenceStatusForParticipant } from "./evidence-status";
+export type {
+  EvidenceStatusLookupInput,
+  EvidenceStatusResult,
+} from "./evidence-status";
 export {
   enqueueOutbox,
   fetchDueOutbox,

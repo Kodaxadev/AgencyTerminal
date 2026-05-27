@@ -6,6 +6,7 @@ const dbMocks = vi.hoisted(() => ({
   createTicket: vi.fn(),
   directorOverrideEvidence: vi.fn(),
   getCapabilitiesForRoles: vi.fn(),
+  getEvidenceStatusForParticipant: vi.fn().mockResolvedValue(null),
   submitEvidence: vi.fn(),
 }));
 
@@ -14,6 +15,7 @@ vi.mock("@agency-terminal/db", () => ({
   createTicket: dbMocks.createTicket,
   directorOverrideEvidence: dbMocks.directorOverrideEvidence,
   getCapabilitiesForRoles: dbMocks.getCapabilitiesForRoles,
+  getEvidenceStatusForParticipant: dbMocks.getEvidenceStatusForParticipant,
   submitEvidence: dbMocks.submitEvidence,
 }));
 
@@ -197,6 +199,7 @@ describe("interaction handler safety", () => {
       type: "contract",
     }), expect.stringContaining("ticket:create:guild-1"));
   });
+
 });
 
 function makeDirectorOverrideInteraction() {
