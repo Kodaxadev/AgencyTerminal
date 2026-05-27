@@ -147,12 +147,12 @@ async function routeProtectedApi(
   }
   if (req.method === "GET" && url.pathname === "/api/evidence") {
     requirePage("/evidence", auth.session.capabilities);
-    writeJson(res, 200, await deps.repository.listEvidenceQueue(guildId));
+    writeJson(res, 200, await deps.repository.listEvidenceQueue(guildId, auth.session.capabilities));
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/tickets") {
     requirePage("/tickets", auth.session.capabilities);
-    writeJson(res, 200, await deps.repository.listTickets(guildId));
+    writeJson(res, 200, await deps.repository.listTickets(guildId, auth.session.capabilities));
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/audit") {

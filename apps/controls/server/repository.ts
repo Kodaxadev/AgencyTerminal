@@ -15,6 +15,7 @@ import { buildGuildConfigValues, toGuildConfigDto } from "./config-view";
 import { buildExport, listAvailableExports } from "./export-repository";
 import { buildOperationalHealthChecks } from "./health-view";
 import { listClearanceTickets, listContractTickets, listIntelEvidence } from "./queue-repository";
+import { canViewEvidenceRow, canViewTicketRow } from "./queue-scope";
 import { consumeRateLimit, type RateLimitInput, type RateLimitResult } from "./rate-limit-repository";
 import { dryRunRetention, listRetentionPolicies, runRetention, saveRetentionPolicy } from "./retention-repository";
 import type {
@@ -57,8 +58,8 @@ export interface ControlsRepository {
   listIntelEvidence(guildId: string, capabilities: Capability[]): Promise<EvidenceQueueItemDto[]>;
   listContractTickets(guildId: string, capabilities: Capability[]): Promise<TicketQueueItemDto[]>;
   listClearanceTickets(guildId: string, capabilities: Capability[]): Promise<TicketQueueItemDto[]>;
-  listEvidenceQueue(guildId: string): Promise<EvidenceQueueItemDto[]>;
-  listTickets(guildId: string): Promise<TicketQueueItemDto[]>;
+  listEvidenceQueue(guildId: string, capabilities: Capability[]): Promise<EvidenceQueueItemDto[]>;
+  listTickets(guildId: string, capabilities: Capability[]): Promise<TicketQueueItemDto[]>;
   listAudit(guildId: string): Promise<AuditLogDto[]>;
   writeAudit(input: { guildId: string; actorDiscordId: string; action: string; subjectType: string; subjectId: string; payload?: Record<string, unknown> }): Promise<void>;
 }
@@ -226,42 +227,53 @@ async function listAudit(guildId: string): Promise<AuditLogDto[]> {
   }));
 }
 
-async function listEvidenceQueue(guildId: string): Promise<EvidenceQueueItemDto[]> {
+async function listEvidenceQueue(
+  guildId: string,
+  capabilities: Capability[],
+): Promise<EvidenceQueueItemDto[]> {
   const rows = await db.select().from(evidence)
     .where(eq(evidence.guildId, guildId))
     .orderBy(desc(evidence.createdAt))
     .limit(100);
-  return rows.map((row) => ({
-    id: row.id,
-    shortId: row.shortId ?? undefined,
-    title: row.title,
-    metricCategory: row.metricCategory,
-    status: row.status,
-    sensitivity: row.sensitivity,
-    submittedByDiscordId: row.submittedByDiscordId,
-    subjectDiscordId: row.subjectDiscordId ?? undefined,
-    createdAt: row.createdAt.toISOString(),
-  }));
+  return rows
+    .filter((row) => canViewEvidenceRow(row.metricCategory, row.sensitivity, capabilities))
+    .map((row) => ({
+      id: row.id,
+      shortId: row.shortId ?? undefined,
+      title: row.title,
+      metricCategory: row.metricCategory,
+      status: row.status,
+      sensitivity: row.sensitivity,
+      submittedByDiscordId: row.submittedByDiscordId,
+      subjectDiscordId: row.subjectDiscordId ?? undefined,
+      createdAt: row.createdAt.toISOString(),
+    }));
 }
 
-async function listTickets(guildId: string): Promise<TicketQueueItemDto[]> {
+async function listTickets(
+  guildId: string,
+  capabilities: Capability[],
+): Promise<TicketQueueItemDto[]> {
   const rows = await db.select().from(tickets)
     .where(eq(tickets.guildId, guildId))
     .orderBy(desc(tickets.createdAt))
     .limit(100);
-  return rows.map((row) => ({
-    id: row.id,
-    shortId: row.shortId ?? undefined,
-    channelId: row.channelId,
-    type: row.type,
-    status: row.status,
-    lifecycleStatus: row.lifecycleStatus,
-    priority: row.priority,
-    sensitivity: row.sensitivity,
-    title: row.title,
-    createdAt: row.createdAt.toISOString(),
-  }));
+  return rows
+    .filter((row) => canViewTicketRow(row.type, row.sensitivity, capabilities))
+    .map((row) => ({
+      id: row.id,
+      shortId: row.shortId ?? undefined,
+      channelId: row.channelId,
+      type: row.type,
+      status: row.status,
+      lifecycleStatus: row.lifecycleStatus,
+      priority: row.priority,
+      sensitivity: row.sensitivity,
+      title: row.title,
+      createdAt: row.createdAt.toISOString(),
+    }));
 }
+
 
 async function listHealth(guildId: string, env: NodeJS.ProcessEnv): Promise<HealthCheckDto[]> {
   const now = new Date().toISOString();

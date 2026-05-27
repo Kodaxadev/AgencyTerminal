@@ -7,7 +7,7 @@ import type {
   SensitivityLevel,
   TicketQueueItemDto,
 } from "../src/contracts";
-import { canViewSensitivity } from "./queue-scope";
+import { canViewSensitivity, type SensitivityDomain } from "./queue-scope";
 
 const NON_DIRECTOR_SENSITIVITY: SensitivityLevel[] = ["public", "member", "officer_only"];
 
@@ -19,7 +19,7 @@ export async function listIntelEvidence(
     .where(and(
       eq(evidence.guildId, guildId),
       eq(evidence.metricCategory, "intelligence_acquisitions"),
-      sensitivityFilter(evidence.sensitivity, capabilities),
+      sensitivityFilter("intel_evidence", evidence.sensitivity, capabilities),
     ))
     .orderBy(desc(evidence.createdAt))
     .limit(100);
@@ -45,19 +45,24 @@ async function listTypedTickets(
   type: "contract" | "clearance",
   capabilities: Capability[],
 ): Promise<TicketQueueItemDto[]> {
+  const domain: SensitivityDomain = type === "contract" ? "contract_tickets" : "clearance_tickets";
   const rows = await db.select().from(tickets)
     .where(and(
       eq(tickets.guildId, guildId),
       eq(tickets.type, type),
-      sensitivityFilter(tickets.sensitivity, capabilities),
+      sensitivityFilter(domain, tickets.sensitivity, capabilities),
     ))
     .orderBy(desc(tickets.createdAt))
     .limit(100);
   return rows.map(toTicketQueueItemDto);
 }
 
-function sensitivityFilter(column: typeof evidence.sensitivity | typeof tickets.sensitivity, capabilities: Capability[]) {
-  return canViewSensitivity("director_only", capabilities)
+function sensitivityFilter(
+  domain: SensitivityDomain,
+  column: typeof evidence.sensitivity | typeof tickets.sensitivity,
+  capabilities: Capability[],
+) {
+  return canViewSensitivity(domain, "director_only", capabilities)
     ? undefined
     : inArray(column, NON_DIRECTOR_SENSITIVITY);
 }

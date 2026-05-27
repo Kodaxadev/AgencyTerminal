@@ -23,11 +23,40 @@ export function getQueueScope(pathname: string, capabilities: Capability[]): Que
   return scope;
 }
 
-export function canViewSensitivity(sensitivity: SensitivityLevel, capabilities: Capability[]): boolean {
+export type SensitivityDomain = QueueScopeKind;
+
+export function canViewSensitivity(
+  domain: SensitivityDomain,
+  sensitivity: SensitivityLevel,
+  capabilities: Capability[],
+): boolean {
   if (sensitivity !== "director_only") return true;
-  return capabilities.some((capability) => (
-    capability === "can_manage_config" ||
-    capability === "can_view_sensitive_intel" ||
-    capability === "can_view_sensitive_contracts"
-  ));
+  if (capabilities.includes("can_manage_config")) return true;
+  if (domain === "intel_evidence") return capabilities.includes("can_view_sensitive_intel");
+  if (domain === "contract_tickets") return capabilities.includes("can_view_sensitive_contracts");
+  return false;
+}
+
+export function canViewEvidenceRow(
+  metricCategory: string,
+  sensitivity: SensitivityLevel,
+  capabilities: Capability[],
+): boolean {
+  if (sensitivity !== "director_only") return true;
+  if (capabilities.includes("can_manage_config")) return true;
+  if (metricCategory === "intelligence_acquisitions") {
+    return capabilities.includes("can_view_sensitive_intel");
+  }
+  return false;
+}
+
+export function canViewTicketRow(
+  ticketType: string,
+  sensitivity: SensitivityLevel,
+  capabilities: Capability[],
+): boolean {
+  if (sensitivity !== "director_only") return true;
+  if (capabilities.includes("can_manage_config")) return true;
+  if (ticketType === "contract") return capabilities.includes("can_view_sensitive_contracts");
+  return false;
 }
