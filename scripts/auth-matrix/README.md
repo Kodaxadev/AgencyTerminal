@@ -6,9 +6,12 @@ server-valid synthetic controls sessions using the same cookie/session storage
 format as post-OAuth requests; Discord OAuth and Discord membership refresh
 are intentionally bypassed. Asserts row visibility on `GET` endpoints, body
 filtering and `[REDACTED]` field redaction on `POST /api/exports/<type>`, and
-`controls_export_created` audit-row mutation. All planted sessions and audit
-rows produced during the run are deleted in a `finally` block so a failure
-mid-matrix cannot leave synthetic state behind.
+`controls_export_created` audit-row mutation.
+
+The harness cleans planted sessions and generated export-audit rows through
+`finally` on ordinary error paths. After forced interruption or process
+termination, run the documented synthetic-state sweep below before accepting
+the database as clean.
 
 This is the same matrix described in [docs/AUTHORIZATION_MATRIX.md](../../docs/AUTHORIZATION_MATRIX.md),
 just runnable without provisioning eight Discord identities.
