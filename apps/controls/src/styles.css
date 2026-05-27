@@ -38,9 +38,14 @@ select {
 /* Sidebar Structure Box Model */
 .sidebar {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto auto;
   gap: 24px;
   padding: 24px;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
 }
 
 .brand {
@@ -86,7 +91,9 @@ th {
     position: static;
     border-right: 0;
     border-bottom: 1px solid var(--color-border);
-    grid-template-rows: auto auto auto;
+    grid-template-rows: repeat(5, auto);
+    max-height: none;
+    overflow-y: visible;
     gap: 16px;
     padding: 16px;
   }
