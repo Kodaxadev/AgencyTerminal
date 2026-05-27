@@ -6,6 +6,51 @@ cleanup. New entries go at the top.
 
 ---
 
+## Run 2026-05-27 (#3) — `/evidence status` post-deploy acceptance
+
+Live Discord smoke for the database-backed `/evidence status` slice
+(commit `811723350be5b871d69a237619dd9636e7cb7ba2`, PR #9). This is not a
+simulator run — it is a real-user Discord interaction acceptance.
+
+| Field | Value |
+|---|---|
+| Deployed SHA | `811723350be5b871d69a237619dd9636e7cb7ba2` |
+| Railway deployment | `324df1ee-648f-425e-a4de-f054a51a4c77` (RUNNING) |
+| Target | Agency Terminal dev guild (`1417305427766546567`) |
+| Participant | real dev-guild member; submitter and subject of `EVD-0023` |
+| Disposition | **DEPLOYED — authorized live path accepted; final real-user negative authorization smoke pending** |
+
+### Accepted live checks
+
+- **Authorized participant lookup by short ID `EVD-0023`**: PASS.
+- **Authorized participant lookup by UUID `b41e539b-092a-4cda-b7c3-6b2e3edda60c`**: PASS.
+- Both responses returned the expected safe status projection only:
+  - visible evidence ID
+  - status
+  - metric category
+  - eligible / required approvals
+  - submitted timestamp
+  - validated timestamp only when present
+- Confirmed absent from the returned content:
+  - description
+  - evidence links / URLs
+  - reviewer identities
+  - review rationale
+  - conflict details
+  - audit payloads
+  - submitter / subject Discord identifiers
+
+### Still pending
+
+- Visual confirmation that the successful responses showed Discord's ephemeral "Only you can see this" marker, unless already observed directly during the run.
+- Unrelated real dev-guild member negative test: **DEFERRED — pending available unrelated real guild member; do not substitute synthetic-session or bot-token testing.**
+
+### Backlog note (no code change in this turn)
+
+- `/evidence status` short-ID input normalization for lowercase user input such as `evd-0023`. The strict `^[A-Z]{2,6}-[0-9]{1,12}$` pattern caused a false-negative neutral reply on the first attempt during this run; uppercase retry succeeded. Treat as a UX improvement, not a security defect or acceptance blocker.
+
+---
+
 ## Run 2026-05-27 (#2) — expanded acceptance
 
 | Field | Value |
