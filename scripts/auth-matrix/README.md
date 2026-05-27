@@ -1,33 +1,40 @@
 # Authorization matrix simulator
 
-Drives the deployed Controls API as eight synthetic seats — one per capability
-under test — without needing real Discord accounts. Plants a real signed
-session into the production `controls_sessions` table for each seat, hits the
-live endpoints with the matching signed cookie, asserts row visibility,
-then deletes the planted sessions.
+Drives the deployed Controls API as ten synthetic seats — one per capability
+combination under test — without needing real Discord accounts. Plants
+server-valid synthetic controls sessions using the same cookie/session storage
+format as post-OAuth requests; Discord OAuth and Discord membership refresh
+are intentionally bypassed. Asserts row visibility on `GET` endpoints, body
+filtering and `[REDACTED]` field redaction on `POST /api/exports/<type>`, and
+`controls_export_created` audit-row mutation. All planted sessions and audit
+rows produced during the run are deleted in a `finally` block so a failure
+mid-matrix cannot leave synthetic state behind.
 
 This is the same matrix described in [docs/AUTHORIZATION_MATRIX.md](../../docs/AUTHORIZATION_MATRIX.md),
 just runnable without provisioning eight Discord identities.
 
 ## What this proves and what it skips
 
-**Identical to a Discord-authenticated request:**
+**Exercised against the live deployment using server-valid sessions:**
 - Cookie signing/verification via `CONTROLS_SESSION_SECRET`.
 - Session lookup against the production `controls_sessions` table (with token
   decryption via `CONTROLS_TOKEN_ENCRYPTION_SECRET`).
 - Page-level access decision (`canAccessPath`).
-- Repository row filtering (`canViewEvidenceRow`, `canViewTicketRow`).
-- Export per-type authorization and per-record filtering.
+- Repository row filtering (`canViewEvidenceRow`, `canViewTicketRow`,
+  `canSeeEvidenceDomain`, `canSeeTicketDomain`).
+- Export per-type authorization (`requireExportCapability`).
+- Per-record export row filtering (`canViewEvidenceRow`/`canViewTicketRow`
+  inside `buildExport`).
+- Export field redaction (`[REDACTED]` on tagged high-risk fields).
+- `controls_export_created` audit row written for every successful export
+  and not written for unauthorized attempts.
 
-**Skipped vs. real Discord OAuth:**
+**Intentionally bypassed:**
 - The Discord OAuth handshake itself.
 - The session-refresh path that re-fetches Discord guild member roles every
   5 minutes. The simulator sets `validatedAt = now`, so the matrix has a
   5-minute window before any request triggers a Discord roundtrip with the
   fake access token. The whole matrix completes in seconds.
-
-Net: this verifies the deployed authorization code with bit-identical session
-state to a real signed-in user.
 
 ## Prerequisites
 
