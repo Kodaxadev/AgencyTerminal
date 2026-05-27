@@ -20,9 +20,10 @@ import {
   createTicket,
   directorOverrideEvidence,
   getCapabilitiesForRoles,
+  getEvidenceStatusForParticipant,
   submitEvidence,
 } from "@agency-terminal/db";
-import type { Capability, TicketType } from "@agency-terminal/db";
+import type { Capability, EvidenceStatusResult, TicketType } from "@agency-terminal/db";
 import {
   canHandleOverride,
   canHandleReview,
@@ -142,10 +143,49 @@ function isDbError(message: string): boolean {
     message.includes("socket");
 }
 
+const EVIDENCE_STATUS_NEUTRAL_REPLY = "Evidence not found or not available to you.";
+
 async function handleEvidenceStatus(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
-  const evidenceId = interaction.options.getString("id", true);
-  await interaction.editReply(`Evidence ${evidenceId} status lookup requires the database-backed controls view.`);
+  const lookup = interaction.options.getString("id", true);
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.editReply(EVIDENCE_STATUS_NEUTRAL_REPLY);
+    return;
+  }
+
+  try {
+    const status = await getEvidenceStatusForParticipant({
+      guildId,
+      evidenceIdOrShortId: lookup,
+      requestingDiscordId: interaction.user.id,
+    });
+    if (!status) {
+      await interaction.editReply(EVIDENCE_STATUS_NEUTRAL_REPLY);
+      return;
+    }
+    await interaction.editReply(formatEvidenceStatusReply(status));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isDbError(message)) {
+      await interaction.editReply(getDbUnavailableReply("evidence"));
+      return;
+    }
+    throw err;
+  }
+}
+
+function formatEvidenceStatusReply(status: EvidenceStatusResult): string {
+  const visibleId = status.shortId ?? status.id;
+  const lines = [
+    `Evidence **${visibleId}**`,
+    `Status: ${status.status}`,
+    `Metric: ${status.metricCategory}`,
+    `Approvals: ${status.eligibleApprovals} / ${status.validationRequiredApprovals}`,
+    `Submitted: ${status.createdAt.toISOString()}`,
+  ];
+  if (status.validatedAt) lines.push(`Validated: ${status.validatedAt.toISOString()}`);
+  return lines.join("\n");
 }
 
 async function handleButton(interaction: ButtonInteraction): Promise<void> {
