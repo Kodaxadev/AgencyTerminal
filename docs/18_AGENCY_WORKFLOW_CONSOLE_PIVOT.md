@@ -105,7 +105,7 @@ Baseline inspected directly (not trusted from summary). Branch at time of writin
 
 ### 3.5 What of merged ticket-lifecycle documentation still applies
 
-`docs/17` + ADR-017 remain the authority for: the three status surfaces and their hierarchy (§1 there); frozen `tickets.status`; `lifecycleFor` fail-closed projection; transactional write of workflow_status + lifecycle_status + workflow_events + audit + outbox; idempotency/replay; the at-most-once Discord projection invariant with deterministic markers; fail-closed missing-channel handling; repair semantics (12a director-authorized, 12b explicit repair). **All of this is reused.** The Application recruitment lifecycle is modeled as a new workflow type on this same engine (§5.3). The *only* reframe is UX surface (§13).
+`docs/17` + ADR-017 remain the authority for: the three status surfaces and their hierarchy (§1 there); frozen `tickets.status`; `lifecycleFor` fail-closed projection; transactional write of workflow_status + lifecycle_status + workflow_events + audit + outbox; idempotency/replay; the at-most-once Discord projection invariant with deterministic markers; fail-closed missing-channel handling; repair semantics (12a director-authorized, 12b explicit repair). **All of this is reused.** The Application recruitment lifecycle reuses the existing `enlistment` workflow type on this same engine (§5.5); no new recruitment/application workflow type is introduced. The *only* reframe is UX surface (§13).
 
 ---
 
